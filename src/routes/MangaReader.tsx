@@ -26,6 +26,7 @@ export default function MangaReader() {
   const [mode, setMode] = useState<ReadingMode>('strip');
   const [width, setWidth] = useState<PageWidth>('standard');
   const [pageIndex, setPageIndex] = useState(0);
+  const [failedPages, setFailedPages] = useState<Record<number, number>>({});
 
   useEffect(() => {
     if (!id || !ch) return;
@@ -33,6 +34,7 @@ export default function MangaReader() {
     setLoading(true);
     setError(null);
     setPageIndex(0);
+    setFailedPages({});
 
     Promise.all([
       mangaApi.getChapter(id, ch),
@@ -121,6 +123,27 @@ export default function MangaReader() {
     if (width === 'wide') return 'max-w-5xl';
     return 'max-w-3xl';
   }, [width]);
+
+  const retryPage = useCallback((idx: number) => {
+    setFailedPages((prev) => ({
+      ...prev,
+      [idx]: Math.abs(prev[idx] || 0) + 1,
+    }));
+  }, []);
+
+  const markPageFailed = useCallback((idx: number) => {
+    setFailedPages((prev) => ({
+      ...prev,
+      [idx]: -(Math.abs(prev[idx] || 0) + 1),
+    }));
+  }, []);
+
+  const getPageSrc = (rawSrc: string, idx: number) => {
+    const attempt = failedPages[idx] || 0;
+    if (attempt <= 0) return rawSrc;
+    const sep = rawSrc.includes('?') ? '&' : '?';
+    return `${rawSrc}${sep}retry=${attempt}`;
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#09090b] text-zinc-100">
@@ -232,26 +255,62 @@ export default function MangaReader() {
           </div>
         ) : mode === 'strip' ? (
           <div className={`w-full ${widthClass} flex flex-col items-center`}>
-            {images.map((img, idx) => (
-              <img
-                key={`${img.image}-${idx}`}
-                src={img.image}
-                alt={img.title || `Page ${idx + 1}`}
-                loading={idx < 3 ? 'eager' : 'lazy'}
-                referrerPolicy="no-referrer"
-                className="w-full h-auto block select-none bg-zinc-900"
-              />
-            ))}
+            {images.map((img, idx) =>
+              (failedPages[idx] || 0) < 0 ? (
+                <div
+                  key={`${img.image}-${idx}-err`}
+                  className="w-full py-16 bg-zinc-900 border border-zinc-800 flex flex-col items-center justify-center gap-3 text-center"
+                >
+                  <p className="text-xs text-zinc-400">
+                    Page {idx + 1} failed to load from upstream CDN.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => retryPage(idx)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg border border-zinc-700 transition-colors"
+                  >
+                    Retry Page {idx + 1}
+                  </button>
+                </div>
+              ) : (
+                <img
+                  key={`${img.image}-${idx}-${failedPages[idx] || 0}`}
+                  src={getPageSrc(img.image, idx)}
+                  alt={img.title || `Page ${idx + 1}`}
+                  loading={idx < 3 ? 'eager' : 'lazy'}
+                  referrerPolicy="no-referrer"
+                  onError={() => markPageFailed(idx)}
+                  className="w-full h-auto block select-none bg-zinc-900"
+                />
+              )
+            )}
           </div>
         ) : (
           <div className={`w-full ${widthClass} flex flex-col items-center gap-4`}>
             <div className="relative w-full flex justify-center bg-zinc-900 rounded-lg overflow-hidden">
-              <img
-                src={images[pageIndex]?.image}
-                alt={images[pageIndex]?.title || `Page ${pageIndex + 1}`}
-                referrerPolicy="no-referrer"
-                className="w-full h-auto max-h-[85vh] object-contain select-none"
-              />
+              {(failedPages[pageIndex] || 0) < 0 ? (
+                <div className="w-full py-24 flex flex-col items-center justify-center gap-3 text-center">
+                  <p className="text-xs text-zinc-400">
+                    Page {pageIndex + 1} failed to load from upstream CDN.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => retryPage(pageIndex)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg border border-zinc-700 transition-colors"
+                  >
+                    Retry Page {pageIndex + 1}
+                  </button>
+                </div>
+              ) : (
+                <img
+                  key={`${images[pageIndex]?.image}-${pageIndex}-${failedPages[pageIndex] || 0}`}
+                  src={images[pageIndex]?.image ? getPageSrc(images[pageIndex].image, pageIndex) : ''}
+                  alt={images[pageIndex]?.title || `Page ${pageIndex + 1}`}
+                  referrerPolicy="no-referrer"
+                  onError={() => markPageFailed(pageIndex)}
+                  className="w-full h-auto max-h-[85vh] object-contain select-none"
+                />
+              )}
               <button
                 type="button"
                 aria-label="Previous page"

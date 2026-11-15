@@ -34,7 +34,10 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 
 export function createApiRouter() {
   const router = express.Router();
-  const allowedImageHosts = (process.env.IMAGE_PROXY_ALLOWED_HOSTS || 'uploads.mangadex.org')
+  const allowedImageHosts = (
+    process.env.IMAGE_PROXY_ALLOWED_HOSTS ||
+    'uploads.mangadex.org,mangadex.network,mangadex.org'
+  )
     .split(',')
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
@@ -134,7 +137,10 @@ export function createApiRouter() {
         headers.Referer = 'https://ww6.mangakakalot.tv/';
       }
 
-      const upstream = await fetch(target, { headers });
+      const upstream = await fetch(target, {
+        headers,
+        signal: AbortSignal.timeout(15_000),
+      });
 
       if (!upstream.ok) {
         return res.status(upstream.status).send('Failed to load image');
