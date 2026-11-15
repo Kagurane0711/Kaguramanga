@@ -9,7 +9,10 @@ import type {
   SearchResponse,
 } from '../types.ts';
 
-const MANGADEX_BASE = 'https://api.mangadex.org';
+const MANGADEX_BASE = (process.env.MANGADEX_API_URL?.trim() || 'https://api.mangadex.org').replace(
+  /\/+$/,
+  ''
+);
 const MANGADEX_UPLOADS = 'https://uploads.mangadex.org';
 const PAGE_LIMIT = 24;
 
@@ -75,30 +78,18 @@ function pickLocalizedText(record?: Record<string, string>, fallback = ''): stri
   );
 }
 
-async function fetchJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
+async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'PolinMangaReader/1.0',
       Accept: 'application/json',
-      ...headers,
     },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
-    throw new Error(`Upstream HTTP ${res.status} for ${url}`);
+    throw new Error(`MangaDex API HTTP ${res.status} for ${url}`);
   }
   return (await res.json()) as T;
-}
-
-// --- Optional external MangaHook API pass-through ---
-function getExternalBase(): string | null {
-  const raw = process.env.MANGAHOOK_API_URL?.trim();
-  if (!raw) return null;
-  return raw.replace(/\/+$/, '');
-}
-
-function getExternalHeaders(): Record<string, string> {
-  const key = process.env.MANGAHOOK_API_KEY?.trim();
-  return key ? { 'x-api-key': key } : {};
 }
 
 // --- MangaDex Tag Metadata ---
@@ -236,27 +227,6 @@ export async function fetchMangaList(params: {
   const state = params.state || 'all';
   const category = params.category || 'all';
 
-  const externalBase = getExternalBase();
-  if (externalBase) {
-    const qs = new URLSearchParams({
-      page: String(page),
-      type,
-      state,
-      category,
-    });
-    const data = await fetchJson<MangaListResponse>(
-      `${externalBase}/api/mangaList?${qs.toString()}`,
-      getExternalHeaders()
-    );
-    return {
-      ...data,
-      mangaList: (data.mangaList || []).map((m) => ({
-        ...m,
-        image: toProxyImageUrl(m.image),
-      })),
-    };
-  }
-
   const cacheKey = `list:${page}:${type}:${state}:${category}`;
   const cached = getCached<MangaListResponse>(cacheKey);
   if (cached) return cached;
@@ -359,17 +329,13 @@ async function fetchChaptersForManga(id: string): Promise<MangaChapterItem[]> {
     q.set('limit', '100');
     q.set('order[chapter]', 'desc');
     q.append('contentRating[]', 'safe');
-    queryAppendContent(q);
+    q.append('contentRating[]', 'suggestive');
+    q.append('contentRating[]', 'erotica');
     if (withLang) {
       q.append('translatedLanguage[]', 'en');
     }
     return `${MANGADEX_BASE}/manga/${encodeURIComponent(id)}/feed?${q.toString()}`;
   };
-
-  function queryAppendContent(q: URLSearchParams) {
-    q.append('contentRating[]', 'suggestive');
-    q.append('contentRating[]', 'erotica');
-  }
 
   let feed = await fetchJson<MdFeedResponse>(buildFeedUrl(true));
   if (feed.data.length === 0) {
@@ -401,20 +367,6 @@ async function fetchChaptersForManga(id: string): Promise<MangaChapterItem[]> {
 }
 
 export async function fetchMangaDetail(id: string): Promise<MangaDetailResponse> {
-  const externalBase = getExternalBase();
-  if (externalBase) {
-    const data = await fetchJson<MangaDetailResponse>(
-      `${externalBase}/api/manga/${encodeURIComponent(id)}`,
-      getExternalHeaders()
-    );
-    return {
-      ...data,
-      id,
-      imageUrl: toProxyImageUrl(data.imageUrl),
-      description: data.description || '',
-    };
-  }
-
   const cacheKey = `manga:${id}`;
   const cached = getCached<MangaDetailResponse>(cacheKey);
   if (cached) return cached;
@@ -457,21 +409,6 @@ export async function fetchChapterDetail(
   mangaId: string,
   chapterId: string
 ): Promise<ChapterDetailResponse> {
-  const externalBase = getExternalBase();
-  if (externalBase) {
-    const data = await fetchJson<ChapterDetailResponse>(
-      `${externalBase}/api/manga/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapterId)}`,
-      getExternalHeaders()
-    );
-    return {
-      ...data,
-      images: (data.images || []).map((img) => ({
-        ...img,
-        image: toProxyImageUrl(img.image),
-      })),
-    };
-  }
-
   const cacheKey = `chapter:${mangaId}:${chapterId}`;
   const cached = getCached<ChapterDetailResponse>(cacheKey);
   if (cached) return cached;
@@ -492,6 +429,7 @@ export async function fetchChapterDetail(
         volume?: string | null;
         chapter?: string | null;
         title?: string | null;
+        externalUrl?: string | null;
       };
     };
   }
@@ -528,21 +466,6 @@ export async function fetchChapterDetail(
 
 export async function searchManga(queryStr: string, page = 1): Promise<SearchResponse> {
   const cleanPage = Math.max(1, Number(page) || 1);
-  const externalBase = getExternalBase();
-  if (externalBase) {
-    const data = await fetchJson<SearchResponse>(
-      `${externalBase}/api/search/${encodeURIComponent(queryStr)}?page=${cleanPage}`,
-      getExternalHeaders()
-    );
-    return {
-      ...data,
-      mangaList: (data.mangaList || []).map((m) => ({
-        ...m,
-        image: toProxyImageUrl(m.image),
-      })),
-    };
-  }
-
   const cacheKey = `search:${queryStr.toLowerCase()}:${cleanPage}`;
   const cached = getCached<SearchResponse>(cacheKey);
   if (cached) return cached;

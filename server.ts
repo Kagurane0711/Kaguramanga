@@ -12,11 +12,14 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  const allowedOrigin = process.env.CORS_ORIGIN?.trim() || 'http://localhost:3000';
+  const allowedOrigins = (process.env.CORS_ORIGIN?.trim() || 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
 
   app.use('/api', (req, res, next) => {
     const origin = req.headers.origin;
-    if (origin === allowedOrigin) {
+    if (origin && (allowedOrigins.includes('*') || allowedOrigins.includes(origin))) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
@@ -28,7 +31,7 @@ async function startServer() {
     next();
   });
 
-  // Mount MangaHook-compatible API routes
+  // Mount MangaDex API proxy routes
   app.use('/api', createApiRouter());
 
   if (process.env.NODE_ENV !== 'production') {

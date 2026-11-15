@@ -6,7 +6,7 @@ import {
   fetchMangaDetail,
   fetchMangaList,
   searchManga,
-} from '../services/mangahook.ts';
+} from '../services/mangadex.ts';
 import type { UserRecord } from '../types.ts';
 
 interface AuthRequest extends Request {
@@ -43,10 +43,10 @@ export function createApiRouter() {
     .filter(Boolean);
 
   router.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', provider: 'MangaDex API' });
   });
 
-  // --- MangaHook API Endpoints ---
+  // --- MangaDex API Endpoints ---
   router.get('/mangaList', async (req: Request, res: Response) => {
     try {
       const page = Number(req.query.page ?? 1);
@@ -59,7 +59,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/mangaList error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga list.',
+        message: err instanceof Error ? err.message : 'Failed to fetch manga list from MangaDex.',
       });
     }
   });
@@ -72,7 +72,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/manga/:id error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga details.',
+        message: err instanceof Error ? err.message : 'Failed to fetch manga details from MangaDex.',
       });
     }
   });
@@ -86,7 +86,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/manga/:id/:ch error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch chapter images.',
+        message: err instanceof Error ? err.message : 'Failed to fetch chapter images from MangaDex.',
       });
     }
   });
@@ -100,12 +100,12 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/search/:query error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to search manga.',
+        message: err instanceof Error ? err.message : 'Failed to search MangaDex.',
       });
     }
   });
 
-  // --- Image Proxy (bypasses CDN Referer / CORS blocks) ---
+  // --- MangaDex Image Proxy (bypasses browser CORS/hotlink restrictions) ---
   router.get('/proxy/image', async (req: Request, res: Response) => {
     const target = String(req.query.url || '');
     if (!target || (!target.startsWith('https://') && !target.startsWith('http://'))) {
@@ -122,23 +122,11 @@ export function createApiRouter() {
         return res.status(403).send('Image host is not allowed');
       }
 
-      const isKakalotHost =
-        parsed.hostname.includes('mangakakalot') ||
-        parsed.hostname.includes('mkklcdn') ||
-        parsed.hostname.includes('blazefast');
-
-      const headers: Record<string, string> = {
-        'User-Agent': isKakalotHost
-          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-          : 'PolinMangaReader/1.0',
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      };
-      if (isKakalotHost) {
-        headers.Referer = 'https://ww6.mangakakalot.tv/';
-      }
-
       const upstream = await fetch(target, {
-        headers,
+        headers: {
+          'User-Agent': 'PolinMangaReader/1.0',
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        },
         signal: AbortSignal.timeout(15_000),
       });
 
