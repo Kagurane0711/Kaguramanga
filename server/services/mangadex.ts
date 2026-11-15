@@ -323,47 +323,115 @@ function formatChapterLabel(ch: {
   return parts.join(' ');
 }
 
-async function fetchChaptersForManga(id: string): Promise<MangaChapterItem[]> {
-  const buildFeedUrl = (withLang: boolean) => {
+async function fetchFeedPages(
+  id: string,
+  options: { enOnly: boolean; readableOnly: boolean }
+): Promise<MdFeedResponse['data']> {
+  const limit = 500;
+  const maxEntries = 2000;
+  const items: MdFeedResponse['data'] = [];
+  let offset = 0;
+
+  while (offset < maxEntries) {
     const q = new URLSearchParams();
-    q.set('limit', '100');
+    q.set('limit', String(limit));
+    q.set('offset', String(offset));
     q.set('order[chapter]', 'desc');
     q.append('contentRating[]', 'safe');
     q.append('contentRating[]', 'suggestive');
     q.append('contentRating[]', 'erotica');
-    if (withLang) {
+    q.append('contentRating[]', 'pornographic');
+    if (options.enOnly) {
       q.append('translatedLanguage[]', 'en');
     }
-    return `${MANGADEX_BASE}/manga/${encodeURIComponent(id)}/feed?${q.toString()}`;
-  };
+    if (options.readableOnly) {
+      q.set('includeEmptyPages', '0');
+      q.set('includeExternalUrl', '0');
+    }
 
-  let feed = await fetchJson<MdFeedResponse>(buildFeedUrl(true));
-  if (feed.data.length === 0) {
-    feed = await fetchJson<MdFeedResponse>(buildFeedUrl(false));
+    const res = await fetchJson<MdFeedResponse>(
+      `${MANGADEX_BASE}/manga/${encodeURIComponent(id)}/feed?${q.toString()}`
+    );
+    items.push(...res.data);
+
+    if (res.data.length < limit || items.length >= res.total) {
+      break;
+    }
+    offset += limit;
   }
 
-  // Prefer readable internal chapters over external-only links
-  const readable = feed.data.filter((c) => !c.attributes.externalUrl && c.attributes.pages > 0);
-  const source = readable.length > 0 ? readable : feed.data;
+  return items;
+}
 
-  // Deduplicate identical chapter numbers (keep first / newest)
-  const seenChapters = new Set<string>();
-  const chapters: MangaChapterItem[] = [];
+function parseChapterNum(chapter?: string | null): number {
+  if (!chapter) return -1;
+  const parsed = Number.parseFloat(chapter);
+  return Number.isFinite(parsed) ? parsed : -1;
+}
 
+async function fetchChaptersForManga(id: string): Promise<MangaChapterItem[]> {
+  // 1. Fetch all readable internal English chapters (handles 100+ / 1000+ chapters)
+  let source = await fetchFeedPages(id, { enOnly: true, readableOnly: true });
+
+  // 2. If no internal English chapters exist (e.g. licensed external-only titles like Grand Blue),
+  //    fetch readable internal chapters across all languages.
+  if (source.length === 0) {
+    source = await fetchFeedPages(id, { enOnly: false, readableOnly: true });
+  }
+
+  // 3. Final fallback if a series only has external links
+  if (source.length === 0) {
+    source = await fetchFeedPages(id, { enOnly: true, readableOnly: false });
+    if (source.length === 0) {
+      source = await fetchFeedPages(id, { enOnly: false, readableOnly: false });
+    }
+  }
+
+  // Rank languages by coverage count (with English always preferred if present)
+  const langCounts = new Map<string, number>();
   for (const ch of source) {
+    const lang = (ch.attributes.translatedLanguage || 'en').toLowerCase();
+    langCounts.set(lang, (langCounts.get(lang) || 0) + 1);
+  }
+
+  const prioritized = [...source].sort((a, b) => {
+    const langA = (a.attributes.translatedLanguage || 'en').toLowerCase();
+    const langB = (b.attributes.translatedLanguage || 'en').toLowerCase();
+    if (langA !== langB) {
+      if (langA === 'en') return -1;
+      if (langB === 'en') return 1;
+      const countDiff = (langCounts.get(langB) || 0) - (langCounts.get(langA) || 0);
+      if (countDiff !== 0) return countDiff;
+    }
+    return (b.attributes.readableAt || '').localeCompare(a.attributes.readableAt || '');
+  });
+
+  // Deduplicate identical chapter numbers, keeping the primary language / newest upload first
+  const seenChapters = new Set<string>();
+  const picked: MdFeedResponse['data'] = [];
+
+  for (const ch of prioritized) {
     const chKey = ch.attributes.chapter || ch.id;
     if (seenChapters.has(chKey)) continue;
     seenChapters.add(chKey);
-    chapters.push({
-      id: ch.id,
-      path: `/chapter/${id}/${ch.id}`,
-      name: formatChapterLabel(ch.attributes),
-      view: (ch.attributes.translatedLanguage || 'en').toUpperCase(),
-      createdAt: formatShortDate(ch.attributes.readableAt),
-    });
+    picked.push(ch);
   }
 
-  return chapters;
+  // Sort numerically descending (newest chapter -> Chapter 1)
+  picked.sort((a, b) => {
+    const numA = parseChapterNum(a.attributes.chapter);
+    const numB = parseChapterNum(b.attributes.chapter);
+    if (numA !== numB) return numB - numA;
+    return (b.attributes.readableAt || '').localeCompare(a.attributes.readableAt || '');
+  });
+
+  return picked.map((ch) => ({
+    id: ch.id,
+    path: `/chapter/${id}/${ch.id}`,
+    name: formatChapterLabel(ch.attributes),
+    view: (ch.attributes.translatedLanguage || 'en').toUpperCase(),
+    createdAt: formatShortDate(ch.attributes.readableAt),
+  }));
 }
 
 export async function fetchMangaDetail(id: string): Promise<MangaDetailResponse> {
