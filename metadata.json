@@ -1,6 +1,6 @@
 {
   "name": "Polin Manga — Manga Reader",
-  "description": "Manga discovery and chapter reading platform powered by the MangaDex API.",
+  "description": "Manga discovery and chapter reading platform powered by the MangaHook API.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

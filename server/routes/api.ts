@@ -6,7 +6,7 @@ import {
   fetchMangaDetail,
   fetchMangaList,
   searchManga,
-} from '../services/mangadex.ts';
+} from '../services/mangahook.ts';
 import type { UserRecord } from '../types.ts';
 
 interface AuthRequest extends Request {
@@ -36,17 +36,17 @@ export function createApiRouter() {
   const router = express.Router();
   const allowedImageHosts = (
     process.env.IMAGE_PROXY_ALLOWED_HOSTS ||
-    'uploads.mangadex.org,mangadex.network,mangadex.org'
+    '2xstorage.com,mangakakalove.com,mangakakalot.gg,mangakakalot.tv,mkklcdnv6temp.com,mkklcdnv6.com,uploads.mangadex.org,mangadex.network,mangadex.org'
   )
     .split(',')
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
 
   router.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', provider: 'MangaDex API' });
+    res.json({ status: 'ok', provider: 'MangaHook API' });
   });
 
-  // --- MangaDex API Endpoints ---
+  // --- MangaHook API Endpoints ---
   router.get('/mangaList', async (req: Request, res: Response) => {
     try {
       const page = Number(req.query.page ?? 1);
@@ -59,7 +59,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/mangaList error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga list from MangaDex.',
+        message: err instanceof Error ? err.message : 'Failed to fetch manga list from MangaHook.',
       });
     }
   });
@@ -72,7 +72,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/manga/:id error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga details from MangaDex.',
+        message: err instanceof Error ? err.message : 'Failed to fetch manga details from MangaHook.',
       });
     }
   });
@@ -86,7 +86,7 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/manga/:id/:ch error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch chapter images from MangaDex.',
+        message: err instanceof Error ? err.message : 'Failed to fetch chapter images from MangaHook.',
       });
     }
   });
@@ -100,12 +100,12 @@ export function createApiRouter() {
     } catch (err) {
       console.error('GET /api/search/:query error:', err);
       res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to search MangaDex.',
+        message: err instanceof Error ? err.message : 'Failed to search MangaHook.',
       });
     }
   });
 
-  // --- MangaDex Image Proxy (bypasses browser CORS/hotlink restrictions) ---
+  // --- Image Proxy (bypasses CDN Referer / CORS blocks) ---
   router.get('/proxy/image', async (req: Request, res: Response) => {
     const target = String(req.query.url || '');
     if (!target || (!target.startsWith('https://') && !target.startsWith('http://'))) {
@@ -122,11 +122,25 @@ export function createApiRouter() {
         return res.status(403).send('Image host is not allowed');
       }
 
+      const isKakalotCdn =
+        hostname.includes('2xstorage') ||
+        hostname.includes('mangakakalove') ||
+        hostname.includes('mangakakalot') ||
+        hostname.includes('mkklcdn') ||
+        hostname.includes('blazefast');
+
+      const headers: Record<string, string> = {
+        'User-Agent': isKakalotCdn
+          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+          : 'PolinMangaReader/1.0',
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      };
+      if (isKakalotCdn) {
+        headers.Referer = 'https://www.mangakakalove.com/';
+      }
+
       const upstream = await fetch(target, {
-        headers: {
-          'User-Agent': 'PolinMangaReader/1.0',
-          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        },
+        headers,
         signal: AbortSignal.timeout(15_000),
       });
 

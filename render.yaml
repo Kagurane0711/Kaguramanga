@@ -11,4 +11,4 @@ services:
       - key: CORS_ORIGIN
         value: https://kagurane0711.github.io
       - key: IMAGE_PROXY_ALLOWED_HOSTS
-        value: uploads.mangadex.org,mangadex.network,mangadex.org
+        value: 2xstorage.com,mangakakalove.com,mangakakalot.gg,mangakakalot.tv,mkklcdnv6temp.com,mkklcdnv6.com,uploads.mangadex.org,mangadex.network,mangadex.org

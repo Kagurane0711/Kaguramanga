@@ -31,7 +31,7 @@ async function startServer() {
     next();
   });
 
-  // Mount MangaDex API proxy routes
+  // Mount MangaHook API routes
   app.use('/api', createApiRouter());
 
   if (process.env.NODE_ENV !== 'production') {

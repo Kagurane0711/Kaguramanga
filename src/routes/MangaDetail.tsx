@@ -244,7 +244,11 @@ export default function MangaDetail() {
                 </div>
               </div>
 
-              {filteredChapters.length === 0 ? (
+              {manga.chapterList.length === 0 ? (
+                <p className="text-sm text-zinc-500 py-8 text-center">
+                  No chapters available for this title yet.
+                </p>
+              ) : filteredChapters.length === 0 ? (
                 <p className="text-sm text-zinc-500 py-8 text-center">
                   No chapters match your filter.
                 </p>
