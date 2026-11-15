@@ -9,7 +9,11 @@ import type {
   UserRecord,
 } from './types.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+import os from 'node:os';
+
+const DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'polin-manga-data')
+  : path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'manga-db.json');
 
 function createInitialState(): DatabaseState {
