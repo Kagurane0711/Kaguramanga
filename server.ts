@@ -8,14 +8,18 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const port = 3000;
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Allow cross-origin requests from GitHub Pages frontend if deployed separately
+  const allowedOrigin = process.env.CORS_ORIGIN?.trim() || 'http://localhost:3000';
+
   app.use('/api', (req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin === allowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') {
@@ -41,6 +45,7 @@ async function startServer() {
     });
   }
 
+  const port = Number(process.env.PORT) || 3000;
   app.listen(port, '0.0.0.0', () => {
     console.log(`Polin Manga server running on http://0.0.0.0:${port}`);
   });

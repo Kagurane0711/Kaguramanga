@@ -34,6 +34,14 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 
 export function createApiRouter() {
   const router = express.Router();
+  const allowedImageHosts = (process.env.IMAGE_PROXY_ALLOWED_HOSTS || 'uploads.mangadex.org')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+
+  router.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok' });
+  });
 
   // --- MangaHook API Endpoints ---
   router.get('/mangaList', async (req: Request, res: Response) => {
@@ -103,6 +111,14 @@ export function createApiRouter() {
 
     try {
       const parsed = new URL(target);
+      const hostname = parsed.hostname.toLowerCase();
+      const hostAllowed = allowedImageHosts.some(
+        (host) => hostname === host || hostname.endsWith(`.${host}`)
+      );
+      if (parsed.protocol !== 'https:' || !hostAllowed) {
+        return res.status(403).send('Image host is not allowed');
+      }
+
       const isKakalotHost =
         parsed.hostname.includes('mangakakalot') ||
         parsed.hostname.includes('mkklcdn') ||

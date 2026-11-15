@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: polin-manga-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: CORS_ORIGIN
+        value: https://kagurane0711.github.io
+      - key: IMAGE_PROXY_ALLOWED_HOSTS
+        value: uploads.mangadex.org
