@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import ImgLogin from '../assets/ImgLogin.jpg';
+import ThemeToggle from '../components/ThemeToggle.tsx';
 import useUsers from '../store/users.ts';
 
 export default function Login() {
@@ -48,8 +49,8 @@ export default function Login() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 min-h-screen w-full bg-[#faf9f7]">
-      <div className="hidden lg:block relative overflow-hidden bg-zinc-950">
+    <div className="grid grid-cols-1 lg:grid-cols-2 min-h-screen w-full bg-[#faf9f7] text-zinc-900 dark:bg-[#111114] dark:text-zinc-100 amoled:bg-black amoled:text-zinc-50 transition-colors">
+      <div className="hidden lg:block relative overflow-hidden bg-zinc-950 amoled:bg-black">
         <img
           className="w-full h-full object-cover opacity-85"
           src={ImgLogin}
@@ -58,25 +59,28 @@ export default function Login() {
       </div>
 
       <div className="flex flex-col justify-center px-6 py-12">
-        <div className="max-w-md w-full mx-auto bg-white p-8 rounded-2xl border border-zinc-200 space-y-6">
+        <div className="max-w-md w-full mx-auto bg-white dark:bg-[#18181b] amoled:bg-black p-8 rounded-2xl border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 space-y-6 transition-colors">
           <div className="space-y-1.5">
-            <Link
-              to="/"
-              className="font-display text-lg font-extrabold tracking-tight text-zinc-950 inline-block"
-            >
-              Polin Manga
-            </Link>
-            <h1 className="font-display text-2xl font-bold text-zinc-950">
+            <div className="flex items-center justify-between gap-3">
+              <Link
+                to="/"
+                className="font-display text-lg font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50 inline-block"
+              >
+                Polin Manga
+              </Link>
+              <ThemeToggle variant="dropdown" compact />
+            </div>
+            <h1 className="font-display text-2xl font-bold text-zinc-950 dark:text-zinc-50">
               Sign in to sync your library
             </h1>
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Save favorite series and resume chapters from any device.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                 Display Name
               </label>
               <input
@@ -84,11 +88,11 @@ export default function Login() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Akira Sato"
-                className="w-full px-3.5 py-2.5 text-sm border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-950"
+                className="w-full px-3.5 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 border border-zinc-300 dark:bg-[#111114] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:border-zinc-700 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-zinc-950 dark:focus:border-zinc-400 transition-colors"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                 Email Address
               </label>
               <input
@@ -97,24 +101,24 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full px-3.5 py-2.5 text-sm border border-zinc-300 rounded-lg focus:outline-none focus:border-zinc-950"
+                className="w-full px-3.5 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 border border-zinc-300 dark:bg-[#111114] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:border-zinc-700 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-zinc-950 dark:focus:border-zinc-400 transition-colors"
               />
             </div>
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 rounded-lg transition-colors disabled:opacity-50"
+              className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors disabled:opacity-50"
             >
               {submitting ? 'Signing in...' : 'Continue with Email'}
             </button>
           </form>
 
-          <div className="pt-4 border-t border-zinc-100">
+          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 amoled:border-zinc-900">
             <button
               type="button"
               disabled={submitting}
               onClick={() => void handleDemo()}
-              className="w-full py-2.5 px-4 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 rounded-lg transition-colors"
+              className="w-full py-2.5 px-4 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded-lg transition-colors"
             >
               Quick Demo Reader Sign In
             </button>

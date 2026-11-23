@@ -33,15 +33,15 @@ export default function Genres() {
   }, [category]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#faf9f7] text-zinc-900">
+    <div className="min-h-screen flex flex-col bg-[#faf9f7] text-zinc-900 dark:bg-[#111114] dark:text-zinc-100 amoled:bg-black amoled:text-zinc-50 transition-colors">
       <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <div className="space-y-2 border-b border-zinc-200 pb-4">
-          <h1 className="font-display text-3xl font-bold text-zinc-950">
+        <div className="space-y-2 border-b border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 pb-4">
+          <h1 className="font-display text-3xl font-bold text-zinc-950 dark:text-zinc-50">
             Browse by Genre
           </h1>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Explore top manga series filtered by genre or theme.
           </p>
         </div>
@@ -58,10 +58,10 @@ export default function Genres() {
                     g.id === 'all' ? '/genres' : `/genres/${encodeURIComponent(g.id)}`
                   )
                 }
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap cursor-pointer ${
                   active
-                    ? 'bg-zinc-950 text-white border-zinc-950'
-                    : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-950'
+                    ? 'bg-zinc-950 text-white border-zinc-950 dark:bg-zinc-100 dark:text-zinc-950 dark:border-zinc-100'
+                    : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-950 dark:bg-[#18181b] dark:text-zinc-300 dark:border-zinc-800 dark:hover:border-zinc-500 amoled:bg-black amoled:border-zinc-900 amoled:hover:border-zinc-600'
                 }`}
               >
                 {g.id === 'all' ? 'All Genres' : g.type}
@@ -75,12 +75,12 @@ export default function Genres() {
             {Array.from({ length: 12 }).map((_, idx) => (
               <div
                 key={idx}
-                className="bg-white border border-zinc-200 rounded-xl overflow-hidden animate-pulse"
+                className="bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-xl overflow-hidden animate-pulse"
               >
-                <div className="aspect-[3/4] bg-zinc-200" />
+                <div className="aspect-[3/4] bg-zinc-200 dark:bg-zinc-800 amoled:bg-zinc-900" />
                 <div className="p-3.5 space-y-2">
-                  <div className="h-4 bg-zinc-200 rounded w-3/4" />
-                  <div className="h-3 bg-zinc-100 rounded w-1/2" />
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-800 amoled:bg-zinc-900 rounded w-3/4" />
+                  <div className="h-3 bg-zinc-100 dark:bg-zinc-800/60 amoled:bg-zinc-900/70 rounded w-1/2" />
                 </div>
               </div>
             ))}

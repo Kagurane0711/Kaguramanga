@@ -8,11 +8,19 @@ import SearchPage from './routes/SearchPage.tsx';
 import Library from './routes/Library.tsx';
 import Login from './routes/Login.tsx';
 import NotFound from './routes/NotFound.tsx';
+import useTheme from './store/theme.ts';
 
 export default function App() {
+  const { theme } = useTheme();
+
   return (
     <>
-      <ToastContainer position="top-center" autoClose={2500} newestOnTop />
+      <ToastContainer
+        position="top-center"
+        autoClose={2500}
+        newestOnTop
+        theme={theme === 'light' ? 'light' : 'dark'}
+      />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/genres" element={<Genres />} />

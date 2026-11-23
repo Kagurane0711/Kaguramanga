@@ -2,6 +2,7 @@
 @import "react-toastify/dist/ReactToastify.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
+@custom-variant amoled (&:where(.amoled, .amoled *));
 
 @layer base {
   :root {
@@ -13,6 +14,10 @@
   html {
     scroll-behavior: smooth;
     font-family: var(--font-sans);
+  }
+
+  html.dark body {
+    letter-spacing: 0.005em;
   }
 
   h1, h2, h3, .font-display {

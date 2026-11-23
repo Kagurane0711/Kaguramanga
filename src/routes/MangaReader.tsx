@@ -8,6 +8,7 @@ import {
   ScrollText,
 } from 'lucide-react';
 import { mangaApi } from '../services/api.ts';
+import ThemeToggle from '../components/ThemeToggle.tsx';
 import useUsers from '../store/users.ts';
 import type { ChapterDetailResponse } from '../types/manga.ts';
 
@@ -146,24 +147,24 @@ export default function MangaReader() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#09090b] text-zinc-100">
+    <div className="min-h-screen flex flex-col bg-[#faf9f7] text-zinc-900 dark:bg-[#111114] dark:text-zinc-100 amoled:bg-black amoled:text-zinc-50 transition-colors">
       {/* Compact Sticky Reader Bar */}
-      <header className="sticky top-0 z-40 bg-[#09090b]/95 backdrop-blur border-b border-zinc-800">
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111114]/95 amoled:bg-black/95 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 transition-colors">
         <div className="max-w-6xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <Link
               to={id ? `/manga/${encodeURIComponent(id)}` : '/'}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 rounded-lg border border-zinc-800 shrink-0 transition-colors"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:text-zinc-950 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:text-white dark:bg-zinc-900 dark:hover:bg-zinc-800 amoled:bg-[#0e0e11] amoled:hover:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-800 shrink-0 whitespace-nowrap transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="hidden sm:inline">Series</span>
             </Link>
 
             <div className="min-w-0">
-              <p className="font-display text-sm font-semibold text-white truncate">
+              <p className="font-display text-sm font-semibold text-zinc-950 dark:text-white truncate">
                 {chapterData?.title || 'Loading...'}
               </p>
-              <p className="text-[11px] text-zinc-400 truncate font-mono-nums">
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate font-mono-nums">
                 {chapterData?.currentChapter || ''}
               </p>
             </div>
@@ -175,7 +176,7 @@ export default function MangaReader() {
                 value={ch || ''}
                 onChange={(e) => goToChapter(e.target.value)}
                 aria-label="Select chapter"
-                className="max-w-[160px] sm:max-w-[210px] px-2.5 py-1.5 text-xs bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-100 focus:outline-none focus:border-rose-500"
+                className="max-w-[140px] sm:max-w-[210px] px-2.5 py-1.5 text-xs bg-white border border-zinc-300 text-zinc-900 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-100 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-rose-500"
               >
                 {chapterOrder.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -185,13 +186,15 @@ export default function MangaReader() {
               </select>
             )}
 
-            <div className="hidden md:inline-flex items-center p-0.5 bg-zinc-900 border border-zinc-800 rounded-lg">
+            <div className="hidden md:inline-flex items-center p-0.5 bg-zinc-100 border border-zinc-200 dark:bg-zinc-900 dark:border-zinc-800 amoled:bg-[#0e0e11] amoled:border-zinc-800 rounded-lg">
               <button
                 type="button"
                 onClick={() => setMode('strip')}
                 title="Vertical Strip"
-                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                  mode === 'strip' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${
+                  mode === 'strip'
+                    ? 'bg-white text-zinc-950 shadow-xs dark:bg-zinc-800 dark:text-white amoled:bg-zinc-900'
+                    : 'text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white'
                 }`}
               >
                 <ScrollText className="w-3.5 h-3.5" />
@@ -201,8 +204,10 @@ export default function MangaReader() {
                 type="button"
                 onClick={() => setMode('single')}
                 title="Single Page"
-                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                  mode === 'single' ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
+                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${
+                  mode === 'single'
+                    ? 'bg-white text-zinc-950 shadow-xs dark:bg-zinc-800 dark:text-white amoled:bg-zinc-900'
+                    : 'text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white'
                 }`}
               >
                 <Columns2 className="w-3.5 h-3.5" />
@@ -214,12 +219,14 @@ export default function MangaReader() {
               value={width}
               onChange={(e) => setWidth(e.target.value as PageWidth)}
               aria-label="Page width"
-              className="hidden sm:block px-2.5 py-1.5 text-xs bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-100 focus:outline-none"
+              className="hidden sm:block px-2.5 py-1.5 text-xs bg-white border border-zinc-300 text-zinc-900 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-100 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-rose-500"
             >
               <option value="compact">Compact</option>
               <option value="standard">Standard</option>
               <option value="wide">Wide</option>
             </select>
+
+            <ThemeToggle variant="dropdown" compact />
           </div>
         </div>
       </header>
@@ -227,28 +234,28 @@ export default function MangaReader() {
       <main className="flex-1 flex flex-col items-center px-2 sm:px-4 py-6">
         {loading ? (
           <div className="py-24 flex flex-col items-center gap-3">
-            <div className="w-8 h-8 rounded-full border-2 border-zinc-700 border-t-rose-500 animate-spin" />
-            <p className="text-xs text-zinc-400">Loading chapter pages...</p>
+            <div className="w-8 h-8 rounded-full border-2 border-zinc-300 dark:border-zinc-700 amoled:border-zinc-800 border-t-rose-500 animate-spin" />
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Loading chapter pages...</p>
           </div>
         ) : error ? (
-          <div className="my-16 max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
-            <p className="text-sm text-zinc-200">{error}</p>
+          <div className="my-16 max-w-md w-full bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-2xl p-8 text-center space-y-4">
+            <p className="text-sm text-zinc-700 dark:text-zinc-200">{error}</p>
             <Link
               to={id ? `/manga/${encodeURIComponent(id)}` : '/'}
-              className="inline-block px-4 py-2 text-xs font-semibold bg-rose-600 text-white rounded-lg"
+              className="inline-block px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors"
             >
               Back to Series
             </Link>
           </div>
         ) : images.length === 0 ? (
-          <div className="my-16 max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center space-y-3">
-            <BookOpen className="w-8 h-8 text-zinc-500 mx-auto" />
-            <p className="text-sm text-zinc-300">
+          <div className="my-16 max-w-md w-full bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-2xl p-8 text-center space-y-3">
+            <BookOpen className="w-8 h-8 text-zinc-400 dark:text-zinc-500 mx-auto" />
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
               No internal images available for this chapter.
             </p>
             <Link
               to={id ? `/manga/${encodeURIComponent(id)}` : '/'}
-              className="inline-block px-4 py-2 text-xs font-semibold bg-zinc-800 text-white rounded-lg"
+              className="inline-block px-4 py-2 text-xs font-semibold bg-zinc-950 hover:bg-rose-600 text-white dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-lg transition-colors"
             >
               Choose Another Chapter
             </Link>
@@ -259,15 +266,15 @@ export default function MangaReader() {
               (failedPages[idx] || 0) < 0 ? (
                 <div
                   key={`${img.image}-${idx}-err`}
-                  className="w-full py-16 bg-zinc-900 border border-zinc-800 flex flex-col items-center justify-center gap-3 text-center"
+                  className="w-full py-16 bg-white dark:bg-[#18181b] amoled:bg-[#0a0a0c] border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 flex flex-col items-center justify-center gap-3 text-center"
                 >
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Page {idx + 1} failed to load from upstream CDN.
                   </p>
                   <button
                     type="button"
                     onClick={() => retryPage(idx)}
-                    className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg border border-zinc-700 transition-colors"
+                    className="px-3 py-1.5 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-900 border border-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white dark:border-zinc-700 amoled:bg-zinc-900 amoled:border-zinc-800 rounded-lg transition-colors"
                   >
                     Retry Page {idx + 1}
                   </button>
@@ -280,23 +287,23 @@ export default function MangaReader() {
                   loading={idx < 3 ? 'eager' : 'lazy'}
                   referrerPolicy="no-referrer"
                   onError={() => markPageFailed(idx)}
-                  className="w-full h-auto block select-none bg-zinc-900"
+                  className="w-full h-auto block select-none bg-zinc-100 dark:bg-zinc-900 amoled:bg-black"
                 />
               )
             )}
           </div>
         ) : (
           <div className={`w-full ${widthClass} flex flex-col items-center gap-4`}>
-            <div className="relative w-full flex justify-center bg-zinc-900 rounded-lg overflow-hidden">
+            <div className="relative w-full flex justify-center bg-zinc-100 dark:bg-zinc-900 amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-lg overflow-hidden">
               {(failedPages[pageIndex] || 0) < 0 ? (
                 <div className="w-full py-24 flex flex-col items-center justify-center gap-3 text-center">
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Page {pageIndex + 1} failed to load from upstream CDN.
                   </p>
                   <button
                     type="button"
                     onClick={() => retryPage(pageIndex)}
-                    className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg border border-zinc-700 transition-colors"
+                    className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-zinc-100 text-zinc-900 border border-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white dark:border-zinc-700 amoled:bg-zinc-900 amoled:border-zinc-800 rounded-lg transition-colors"
                   >
                     Retry Page {pageIndex + 1}
                   </button>
@@ -325,23 +332,23 @@ export default function MangaReader() {
               />
             </div>
 
-            <div className="flex items-center gap-4 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-lg">
+            <div className="flex items-center gap-4 bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 px-4 py-2 rounded-lg">
               <button
                 type="button"
                 disabled={pageIndex <= 0}
                 onClick={() => changePage(-1)}
-                className="px-3 py-1 text-xs font-semibold text-zinc-200 bg-zinc-800 rounded disabled:opacity-40"
+                className="px-3 py-1 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded disabled:opacity-40 transition-colors"
               >
                 Prev Page
               </button>
-              <span className="text-xs text-zinc-300 font-mono-nums">
+              <span className="text-xs text-zinc-700 dark:text-zinc-300 font-mono-nums">
                 {pageIndex + 1} / {images.length}
               </span>
               <button
                 type="button"
                 disabled={pageIndex >= images.length - 1}
                 onClick={() => changePage(1)}
-                className="px-3 py-1 text-xs font-semibold text-zinc-200 bg-zinc-800 rounded disabled:opacity-40"
+                className="px-3 py-1 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded disabled:opacity-40 transition-colors"
               >
                 Next Page
               </button>
@@ -351,12 +358,12 @@ export default function MangaReader() {
 
         {/* End-of-Chapter Navigation */}
         {!loading && !error && (
-          <div className={`w-full ${widthClass} mt-8 pt-6 border-t border-zinc-800 flex items-center justify-between gap-4`}>
+          <div className={`w-full ${widthClass} mt-8 pt-6 border-t border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 flex items-center justify-between gap-4`}>
             <button
               type="button"
               disabled={!prevChapter}
               onClick={() => prevChapter && goToChapter(prevChapter.id)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-lg disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold bg-white hover:bg-zinc-100 border border-zinc-300 text-zinc-900 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100 amoled:bg-black amoled:hover:bg-zinc-900 amoled:border-zinc-800 rounded-lg disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
               <span>Previous Chapter</span>
@@ -366,7 +373,7 @@ export default function MangaReader() {
               type="button"
               disabled={!nextChapter}
               onClick={() => nextChapter && goToChapter(nextChapter.id)}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-40 disabled:pointer-events-none whitespace-nowrap transition-colors"
             >
               <span>Next Chapter</span>
               <ChevronRight className="w-4 h-4" />

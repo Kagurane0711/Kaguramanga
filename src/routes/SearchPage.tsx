@@ -45,12 +45,12 @@ export default function SearchPage() {
   }, [decodedQuery, page]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#faf9f7] text-zinc-900">
+    <div className="min-h-screen flex flex-col bg-[#faf9f7] text-zinc-900 dark:bg-[#111114] dark:text-zinc-100 amoled:bg-black amoled:text-zinc-50 transition-colors">
       <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         <div className="max-w-2xl space-y-4">
-          <h1 className="font-display text-3xl font-bold text-zinc-950">
+          <h1 className="font-display text-3xl font-bold text-zinc-950 dark:text-zinc-50">
             Search Manga
           </h1>
           <SearchBar
@@ -60,8 +60,8 @@ export default function SearchPage() {
         </div>
 
         {!decodedQuery.trim() ? (
-          <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center">
-            <p className="text-sm text-zinc-500">
+          <div className="bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-xl p-12 text-center">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Enter a manga title above to search the catalog.
             </p>
           </div>
@@ -70,29 +70,29 @@ export default function SearchPage() {
             {Array.from({ length: 12 }).map((_, idx) => (
               <div
                 key={idx}
-                className="bg-white border border-zinc-200 rounded-xl overflow-hidden animate-pulse"
+                className="bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-xl overflow-hidden animate-pulse"
               >
-                <div className="aspect-[3/4] bg-zinc-200" />
+                <div className="aspect-[3/4] bg-zinc-200 dark:bg-zinc-800 amoled:bg-zinc-900" />
                 <div className="p-3.5 space-y-2">
-                  <div className="h-4 bg-zinc-200 rounded w-3/4" />
-                  <div className="h-3 bg-zinc-100 rounded w-1/2" />
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-800 amoled:bg-zinc-900 rounded w-3/4" />
+                  <div className="h-3 bg-zinc-100 dark:bg-zinc-800/60 amoled:bg-zinc-900/70 rounded w-1/2" />
                 </div>
               </div>
             ))}
           </div>
         ) : results.length === 0 ? (
-          <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center">
-            <p className="text-sm font-medium text-zinc-800">
+          <div className="bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-xl p-12 text-center">
+            <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
               No results found for "{decodedQuery}".
             </p>
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex items-baseline justify-between border-b border-zinc-200 pb-3">
-              <h2 className="font-display text-lg font-bold text-zinc-950">
+            <div className="flex items-baseline justify-between border-b border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 pb-3">
+              <h2 className="font-display text-lg font-bold text-zinc-950 dark:text-zinc-50">
                 Results for "{decodedQuery}"
               </h2>
-              <span className="text-xs text-zinc-500 font-mono-nums">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono-nums">
                 {results.length} matches on page {page}
               </span>
             </div>
@@ -109,19 +109,19 @@ export default function SearchPage() {
                   type="button"
                   disabled={page <= 1}
                   onClick={() => setSearchParams({ page: String(page - 1) })}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-white border border-zinc-300 rounded-lg text-zinc-800 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-300 dark:border-zinc-700 amoled:border-zinc-800 rounded-lg text-zinc-800 dark:text-zinc-200 hover:border-zinc-950 dark:hover:border-zinc-400 disabled:opacity-40 transition-colors cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   <span>Previous</span>
                 </button>
-                <span className="text-xs font-medium text-zinc-600 font-mono-nums">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400 font-mono-nums">
                   Page {page} of {totalPages}
                 </span>
                 <button
                   type="button"
                   disabled={page >= totalPages}
                   onClick={() => setSearchParams({ page: String(page + 1) })}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-white border border-zinc-300 rounded-lg text-zinc-800 disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-300 dark:border-zinc-700 amoled:border-zinc-800 rounded-lg text-zinc-800 dark:text-zinc-200 hover:border-zinc-950 dark:hover:border-zinc-400 disabled:opacity-40 transition-colors cursor-pointer"
                 >
                   <span>Next</span>
                   <ChevronRight className="w-4 h-4" />

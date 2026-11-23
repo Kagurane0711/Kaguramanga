@@ -15,8 +15,26 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('polin_manga_theme');
+          var theme =
+            saved === 'light' || saved === 'dark' || saved === 'amoled'
+              ? saved
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          var root = document.documentElement;
+          root.classList.toggle('dark', theme === 'dark' || theme === 'amoled');
+          root.classList.toggle('amoled', theme === 'amoled');
+          root.dataset.theme = theme;
+          root.style.colorScheme = theme === 'light' ? 'light' : 'dark';
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-[#faf9f7] text-zinc-900 antialiased selection:bg-rose-600 selection:text-white">
+  <body class="bg-[#faf9f7] text-zinc-900 dark:bg-[#111114] dark:text-zinc-100 amoled:bg-black amoled:text-zinc-50 antialiased selection:bg-rose-600 selection:text-white transition-colors duration-150">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
