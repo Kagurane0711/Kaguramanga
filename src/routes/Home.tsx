@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar.tsx';
 import Footer from '../components/Footer.tsx';
 import MangaCard from '../components/MangaCard.tsx';
 import SearchBar from '../components/SearchBar.tsx';
+import PageJumpControl from '../components/PageJumpControl.tsx';
 import { mangaApi } from '../services/api.ts';
 import type { MangaListItem, MangaListMetaData } from '../types/manga.ts';
 
@@ -255,9 +256,14 @@ export default function Home() {
                   <span>Previous</span>
                 </button>
 
-                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400 font-mono-nums">
-                  Page {page} of {totalPages}
-                </span>
+                <PageJumpControl
+                  page={page}
+                  totalPages={totalPages}
+                  onJump={(targetPage) => {
+                    updateFilter({ page: targetPage });
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                />
 
                 <button
                   type="button"

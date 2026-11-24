@@ -774,6 +774,9 @@ function mapMangaDexItemsToList(
   );
 }
 
+const MANGADEX_MAX_WINDOW = 10_000;
+const DEMOGRAPHIC_BUCKETS = ['shounen', 'seinen', 'shoujo', 'josei', 'none'] as const;
+
 async function fetchOriginSeparatedList(params: {
   page: number;
   type: string;
@@ -783,50 +786,45 @@ async function fetchOriginSeparatedList(params: {
 }): Promise<MangaListResponse> {
   const { page, type, state, categorySlug, origin } = params;
   const pageSize = 24;
-  const maxOffset = Math.max(0, 10_000 - pageSize);
-  const offset = Math.min((page - 1) * pageSize, maxOffset);
   const tagMap = await getMangaDexTagMap();
 
-  const qs = new URLSearchParams();
-  qs.set('limit', String(pageSize));
-  qs.set('offset', String(offset));
-  qs.append('includes[]', 'cover_art');
+  const baseQs = new URLSearchParams();
+  baseQs.append('includes[]', 'cover_art');
   if (categorySlug === 'ecchi') {
-    qs.append('contentRating[]', 'suggestive');
+    baseQs.append('contentRating[]', 'suggestive');
   } else if (categorySlug === 'mature') {
-    qs.append('contentRating[]', 'suggestive');
-    qs.append('contentRating[]', 'erotica');
+    baseQs.append('contentRating[]', 'suggestive');
+    baseQs.append('contentRating[]', 'erotica');
   } else {
-    qs.append('contentRating[]', 'safe');
-    qs.append('contentRating[]', 'suggestive');
+    baseQs.append('contentRating[]', 'safe');
+    baseQs.append('contentRating[]', 'suggestive');
   }
-  qs.append('availableTranslatedLanguage[]', 'en');
-  qs.set('hasAvailableChapters', 'true');
+  baseQs.append('availableTranslatedLanguage[]', 'en');
+  baseQs.set('hasAvailableChapters', 'true');
 
   if (origin === 'manhwa') {
     // Strictly Korean Manhwa only
-    qs.append('originalLanguage[]', 'ko');
+    baseQs.append('originalLanguage[]', 'ko');
   } else {
     // Strictly Japanese Manga only — exclude vertical Long Strip webtoons unless explicitly requested
-    qs.append('originalLanguage[]', 'ja');
+    baseQs.append('originalLanguage[]', 'ja');
     const longStripId = tagMap.get('long-strip');
     if (longStripId && categorySlug !== 'long-strip' && categorySlug !== 'webtoons') {
-      qs.append('excludedTags[]', longStripId);
+      baseQs.append('excludedTags[]', longStripId);
     }
   }
 
-  if (type === 'topview' || type === 'top read') {
-    qs.set('order[followedCount]', 'desc');
-  } else if (type === 'newest') {
-    qs.set('order[createdAt]', 'desc');
-  } else {
-    qs.set('order[latestUploadedChapter]', 'desc');
-  }
+  const orderKey =
+    type === 'topview' || type === 'top read'
+      ? 'followedCount'
+      : type === 'newest'
+        ? 'createdAt'
+        : 'latestUploadedChapter';
 
   if (state === 'ongoing') {
-    qs.append('status[]', 'ongoing');
+    baseQs.append('status[]', 'ongoing');
   } else if (state === 'completed') {
-    qs.append('status[]', 'completed');
+    baseQs.append('status[]', 'completed');
   }
 
   if (
@@ -836,35 +834,156 @@ async function fetchOriginSeparatedList(params: {
     categorySlug !== 'mature'
   ) {
     if (DEMOGRAPHIC_SLUGS.has(categorySlug)) {
-      qs.append('publicationDemographic[]', categorySlug);
+      baseQs.append('publicationDemographic[]', categorySlug);
     } else {
       const tagId = tagMap.get(categorySlug);
       if (tagId) {
-        qs.append('includedTags[]', tagId);
+        baseQs.append('includedTags[]', tagId);
       }
     }
   }
 
-  const res = await fetch(`${MANGADEX_API_BASE}/manga?${qs.toString()}`, {
-    headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!res.ok) {
-    throw new Error(`Origin catalog HTTP ${res.status}`);
+  const fetchMdSlice = async (
+    offset: number,
+    limit: number,
+    dir: 'desc' | 'asc',
+    demographic?: string
+  ): Promise<MangaDexListResponse> => {
+    const qs = new URLSearchParams(baseQs);
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const safeOffset = Math.max(0, Math.min(offset, MANGADEX_MAX_WINDOW - safeLimit));
+    qs.set('limit', String(safeLimit));
+    qs.set('offset', String(safeOffset));
+    qs.set(`order[${orderKey}]`, dir);
+    if (demographic) {
+      qs.append('publicationDemographic[]', demographic);
+    }
+    const res = await fetch(`${MANGADEX_API_BASE}/manga?${qs.toString()}`, {
+      headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) {
+      throw new Error(`Origin catalog HTTP ${res.status}`);
+    }
+    return (await res.json()) as MangaDexListResponse;
+  };
+
+  const fetchBucketWindow = async (
+    demographic: string | undefined,
+    bucketTotal: number,
+    sliceStart: number,
+    sliceCount: number
+  ): Promise<MangaDexListItem[]> => {
+    if (bucketTotal <= 0 || sliceCount <= 0) return [];
+    const clampedStart = Math.max(0, Math.min(sliceStart, bucketTotal - 1));
+    const sliceEnd = Math.min(clampedStart + sliceCount, bucketTotal);
+    const count = sliceEnd - clampedStart;
+    if (count <= 0) return [];
+
+    if (clampedStart + count <= MANGADEX_MAX_WINDOW) {
+      const data = await fetchMdSlice(clampedStart, count, 'desc', demographic);
+      return data.data || [];
+    }
+
+    const ascOffset = Math.max(0, bucketTotal - sliceEnd);
+    const data = await fetchMdSlice(ascOffset, count, 'asc', demographic);
+    return [...(data.data || [])].reverse();
+  };
+
+  const requestedOffset = (page - 1) * pageSize;
+  const filterKey = `${origin}:${type}:${state}:${categorySlug}`;
+
+  let allItems: MangaDexListItem[] = [];
+  let totalStories = 0;
+
+  if (requestedOffset + pageSize <= MANGADEX_MAX_WINDOW) {
+    // Fast path (pages 1..416): single direct MangaDex query
+    const mdData = await fetchMdSlice(requestedOffset, pageSize, 'desc');
+    allItems = mdData.data || [];
+    totalStories =
+      typeof mdData.total === 'number' && mdData.total >= 0 ? mdData.total : allItems.length;
+  } else {
+    // Deep page (> 416): look up exact catalog total (cached) then serve via tail inversion or disjoint demographic partitions
+    totalStories = await cachedFetch<number>(
+      `md-total:${filterKey}`,
+      10 * 60_000,
+      60 * 60_000,
+      async () => {
+        const probe = await fetchMdSlice(0, 1, 'desc');
+        return typeof probe.total === 'number' && probe.total >= 0 ? probe.total : 0;
+      }
+    );
+
+    const exactPages = Math.max(1, Math.ceil(totalStories / pageSize));
+    const effectivePage = Math.min(page, exactPages);
+    const start = (effectivePage - 1) * pageSize;
+    const end = Math.min(start + pageSize, totalStories);
+    const needed = Math.max(0, end - start);
+
+    if (needed === 0) {
+      allItems = [];
+    } else if (start + needed <= MANGADEX_MAX_WINDOW) {
+      // Requested page exceeded totalPages and clamped back into the first 10,000 items
+      const mdData = await fetchMdSlice(start, needed, 'desc');
+      allItems = mdData.data || [];
+    } else if (totalStories - start <= MANGADEX_MAX_WINDOW) {
+      // Tail window (last 10,000 items): exact global ordering via ascending sort inversion
+      const ascOffset = Math.max(0, totalStories - end);
+      const mdData = await fetchMdSlice(ascOffset, needed, 'asc');
+      allItems = [...(mdData.data || [])].reverse();
+    } else {
+      // Middle band (> 10,000 from both start and end): traverse disjoint demographic partitions
+      const topBoundary = Math.floor(MANGADEX_MAX_WINDOW / pageSize) * pageSize; // 9,984
+      const bottomBoundary = topBoundary;
+
+      const bucketTotals = await cachedFetch<Array<{ demo: string; total: number }>>(
+        `md-buckets:${filterKey}`,
+        15 * 60_000,
+        60 * 60_000,
+        async () =>
+          Promise.all(
+            DEMOGRAPHIC_BUCKETS.map(async (demo) => {
+              const probe = await fetchMdSlice(0, 1, 'desc', demo);
+              return { demo, total: typeof probe.total === 'number' ? probe.total : 0 };
+            })
+          )
+      );
+
+      const partitions = bucketTotals
+        .filter((b) => b.total > 0)
+        .map((b) => {
+          const skipTop = Math.floor((b.total * topBoundary) / Math.max(1, totalStories));
+          const skipBottom = Math.floor((b.total * bottomBoundary) / Math.max(1, totalStories));
+          const midSize = Math.max(0, b.total - skipTop - skipBottom);
+          return { ...b, skipTop, midSize };
+        })
+        .filter((b) => b.midSize > 0);
+
+      let cursor = Math.max(0, start - topBoundary);
+      let remaining = needed;
+      const collected: MangaDexListItem[] = [];
+
+      for (const part of partitions) {
+        if (remaining <= 0) break;
+        if (cursor >= part.midSize) {
+          cursor -= part.midSize;
+          continue;
+        }
+        const take = Math.min(remaining, part.midSize - cursor);
+        const chunk = await fetchBucketWindow(part.demo, part.total, part.skipTop + cursor, take);
+        collected.push(...chunk);
+        remaining -= take;
+        cursor = 0;
+      }
+
+      allItems = collected;
+    }
   }
-  const mdData = (await res.json()) as MangaDexListResponse;
-  const allItems = mdData.data || [];
+
   const stats = await fetchMangaDexStats(allItems.map((i) => i.id));
   const mangaList = mapMangaDexItemsToList(allItems, stats, origin);
 
-  // Exact total available titles for the current filter (All / Ongoing / Completed / Genre)
-  const totalStories =
-    typeof mdData.total === 'number' && mdData.total >= 0 ? mdData.total : mangaList.length;
-  // Cap navigable pages at MangaDex's 10,000-offset API ceiling
-  const totalPages = Math.max(
-    1,
-    Math.min(Math.ceil(totalStories / pageSize), Math.floor(10_000 / pageSize))
-  );
+  const totalPages = Math.max(1, Math.ceil(totalStories / pageSize));
 
   const metaData: MangaListMetaData = {
     totalStories,
