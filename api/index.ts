@@ -1,8 +1,10 @@
+import compression from 'compression';
 import express from 'express';
 import { createApiRouter } from '../server/routes/api.ts';
 
 const app = express();
 
+app.use(compression({ threshold: 1024 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

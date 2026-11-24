@@ -114,6 +114,8 @@ export default function Home() {
                     <img
                       src={featured.image}
                       alt={featured.title}
+                      fetchPriority="high"
+                      decoding="async"
                       referrerPolicy="no-referrer"
                       className="w-full h-full sm:absolute sm:inset-0 object-cover object-center group-hover:scale-[1.03] transition-transform duration-200"
                     />

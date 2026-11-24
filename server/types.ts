@@ -61,6 +61,7 @@ export interface ChapterImageItem {
 export interface ChapterDetailResponse {
   title: string;
   currentChapter: string;
+  mangaImage?: string;
   chapterListIds: ChapterIdOption[];
   images: ChapterImageItem[];
 }
