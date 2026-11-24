@@ -11,6 +11,7 @@ export interface MetaOption {
   id: string;
   type: string;
   name?: string;
+  group?: 'all' | 'genre' | 'demographic' | 'theme' | 'format';
 }
 
 export interface MangaListMetaData {
@@ -60,6 +61,7 @@ export interface ChapterImageItem {
 export interface ChapterDetailResponse {
   title: string;
   currentChapter: string;
+  mangaImage?: string;
   chapterListIds: ChapterIdOption[];
   images: ChapterImageItem[];
 }

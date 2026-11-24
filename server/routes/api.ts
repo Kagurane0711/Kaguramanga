@@ -1,7 +1,10 @@
+import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { db } from '../db.ts';
 import {
+  GENRE_OPTIONS,
   fetchChapterDetail,
   fetchMangaDetail,
   fetchMangaList,
@@ -42,8 +45,55 @@ export function createApiRouter() {
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
 
+  // Bounded LRU cache for small cover thumbnails (<= 100 KB each, 20 MB cap)
+  const MAX_COVER_CACHE_BYTES = 20 * 1024 * 1024;
+  const MAX_COVER_ITEM_BYTES = 100 * 1024;
+  const coverCache = new Map<string, { buf: Buffer; contentType: string; expiresAt: number }>();
+  let coverCacheBytes = 0;
+
+  const getCachedCover = (url: string) => {
+    const hit = coverCache.get(url);
+    if (!hit) return null;
+    if (Date.now() > hit.expiresAt) {
+      coverCache.delete(url);
+      coverCacheBytes -= hit.buf.byteLength;
+      return null;
+    }
+    // Refresh LRU position
+    coverCache.delete(url);
+    coverCache.set(url, hit);
+    return hit;
+  };
+
+  const setCachedCover = (url: string, buf: Buffer, contentType: string) => {
+    if (buf.byteLength > MAX_COVER_ITEM_BYTES) return;
+    const prev = coverCache.get(url);
+    if (prev) {
+      coverCacheBytes -= prev.buf.byteLength;
+      coverCache.delete(url);
+    }
+    while (coverCacheBytes + buf.byteLength > MAX_COVER_CACHE_BYTES && coverCache.size > 0) {
+      const oldestKey = coverCache.keys().next().value;
+      if (!oldestKey) break;
+      const oldest = coverCache.get(oldestKey);
+      if (oldest) coverCacheBytes -= oldest.buf.byteLength;
+      coverCache.delete(oldestKey);
+    }
+    coverCache.set(url, {
+      buf,
+      contentType,
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    coverCacheBytes += buf.byteLength;
+  };
+
   router.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', provider: 'MangaHook API' });
+  });
+
+  router.get('/genres', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    res.json({ genres: GENRE_OPTIONS });
   });
 
   // --- MangaHook API Endpoints ---
@@ -54,7 +104,8 @@ export function createApiRouter() {
       const state = typeof req.query.state === 'string' ? req.query.state : 'all';
       const category = typeof req.query.category === 'string' ? req.query.category : 'all';
 
-      const data = await fetchMangaList({ page, type, state, category });
+      const data = await fetchMangaList({ page, type, state, category, origin: 'manga' });
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
       res.json(data);
     } catch (err) {
       console.error('GET /api/mangaList error:', err);
@@ -64,10 +115,29 @@ export function createApiRouter() {
     }
   });
 
+  router.get('/manhwaList', async (req: Request, res: Response) => {
+    try {
+      const page = Number(req.query.page ?? 1);
+      const type = typeof req.query.type === 'string' ? req.query.type : 'latest';
+      const state = typeof req.query.state === 'string' ? req.query.state : 'all';
+      const category = typeof req.query.category === 'string' ? req.query.category : 'all';
+
+      const data = await fetchMangaList({ page, type, state, category, origin: 'manhwa' });
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.json(data);
+    } catch (err) {
+      console.error('GET /api/manhwaList error:', err);
+      res.status(502).json({
+        message: err instanceof Error ? err.message : 'Failed to fetch manhwa list from MangaHook.',
+      });
+    }
+  });
+
   router.get('/manga/:id', async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
       const data = await fetchMangaDetail(id);
+      res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600');
       res.json(data);
     } catch (err) {
       console.error('GET /api/manga/:id error:', err);
@@ -82,6 +152,7 @@ export function createApiRouter() {
       const id = String(req.params.id);
       const ch = String(req.params.ch);
       const data = await fetchChapterDetail(id, ch);
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
       res.json(data);
     } catch (err) {
       console.error('GET /api/manga/:id/:ch error:', err);
@@ -96,6 +167,7 @@ export function createApiRouter() {
       const query = String(req.params.query || '');
       const page = Number(req.query.page ?? 1);
       const data = await searchManga(query, page);
+      res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
       res.json(data);
     } catch (err) {
       console.error('GET /api/search/:query error:', err);
@@ -105,7 +177,7 @@ export function createApiRouter() {
     }
   });
 
-  // --- Image Proxy (bypasses CDN Referer / CORS blocks) ---
+  // --- Image Proxy (bypasses CDN Referer / CORS blocks; caches covers + streams chapter pages) ---
   router.get('/proxy/image', async (req: Request, res: Response) => {
     const target = String(req.query.url || '');
     if (!target || (!target.startsWith('https://') && !target.startsWith('http://'))) {
@@ -120,6 +192,14 @@ export function createApiRouter() {
       );
       if (parsed.protocol !== 'https:' || !hostAllowed) {
         return res.status(403).send('Image host is not allowed');
+      }
+
+      // Fast path: serve cached cover thumbnails directly from memory (<1ms)
+      const cached = getCachedCover(target);
+      if (cached) {
+        res.setHeader('Content-Type', cached.contentType);
+        res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+        return res.send(cached.buf);
       }
 
       const isKakalotCdn =
@@ -153,13 +233,41 @@ export function createApiRouter() {
         return res.status(415).send('Unsupported content type');
       }
 
-      const arrayBuf = await upstream.arrayBuffer();
+      const contentLength = Number(upstream.headers.get('content-length') || '0');
       res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.send(Buffer.from(arrayBuf));
+      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+
+      // Cache small covers in memory; stream large chapter pages directly to avoid RAM buffering
+      if (contentLength > 0 && contentLength <= MAX_COVER_ITEM_BYTES) {
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        setCachedCover(target, buf, contentType);
+        return res.send(buf);
+      }
+
+      if (upstream.body) {
+        if (contentLength > 0) {
+          res.setHeader('Content-Length', String(contentLength));
+        }
+        const nodeStream = Readable.fromWeb(upstream.body as unknown as WebReadableStream);
+        nodeStream.on('error', () => {
+          if (!res.headersSent) {
+            res.status(502).send('Image stream error');
+          } else {
+            res.end();
+          }
+        });
+        nodeStream.pipe(res);
+        return;
+      }
+
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      setCachedCover(target, buf, contentType);
+      res.send(buf);
     } catch (err) {
       console.error('Image proxy error:', err);
-      res.status(502).send('Image proxy error');
+      if (!res.headersSent) {
+        res.status(502).send('Image proxy error');
+      }
     }
   });
 

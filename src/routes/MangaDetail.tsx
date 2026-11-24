@@ -49,18 +49,27 @@ export default function MangaDetail() {
     [history, id]
   );
 
-  const filteredChapters = useMemo(() => {
+  const uniqueChapters = useMemo(() => {
     if (!manga?.chapterList) return [];
-    const base = sortAsc ? [...manga.chapterList].reverse() : manga.chapterList;
+    const seen = new Set<string>();
+    return manga.chapterList.filter((ch) => {
+      if (!ch.id || seen.has(ch.id)) return false;
+      seen.add(ch.id);
+      return true;
+    });
+  }, [manga]);
+
+  const filteredChapters = useMemo(() => {
+    const base = sortAsc ? [...uniqueChapters].reverse() : uniqueChapters;
     const q = chapterQuery.trim().toLowerCase();
     if (!q) return base;
     return base.filter((ch) => ch.name.toLowerCase().includes(q));
-  }, [manga, sortAsc, chapterQuery]);
+  }, [uniqueChapters, sortAsc, chapterQuery]);
 
   const firstChapter = useMemo(() => {
-    if (!manga?.chapterList || manga.chapterList.length === 0) return null;
-    return manga.chapterList[manga.chapterList.length - 1];
-  }, [manga]);
+    if (uniqueChapters.length === 0) return null;
+    return uniqueChapters[uniqueChapters.length - 1];
+  }, [uniqueChapters]);
 
   const handleBookmark = async () => {
     if (!manga || !id) return;
@@ -186,7 +195,7 @@ export default function MangaDetail() {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
                       <span className="font-semibold text-zinc-500 dark:text-zinc-400">Genres:</span>
                       {manga.genres.map((genre, idx) => (
-                        <span key={genre} className="inline-flex items-center gap-3">
+                        <span key={`${genre}-${idx}`} className="inline-flex items-center gap-3">
                           <Link
                             to={`/genres/${encodeURIComponent(genre)}`}
                             className="font-medium text-zinc-800 dark:text-zinc-200 hover:text-rose-600 dark:hover:text-rose-400 underline-offset-4 hover:underline transition-colors"
@@ -221,7 +230,7 @@ export default function MangaDetail() {
                     Chapters
                   </h2>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 font-mono-nums mt-0.5">
-                    {manga.chapterList.length} available chapters
+                    {uniqueChapters.length} available chapters
                   </p>
                 </div>
 
@@ -254,11 +263,11 @@ export default function MangaDetail() {
                 </p>
               ) : (
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800/80 amoled:divide-zinc-900 max-h-[540px] overflow-y-auto">
-                  {filteredChapters.map((ch) => {
+                  {filteredChapters.map((ch, idx) => {
                     const isCurrent = lastRead?.chapter_id === ch.id;
                     return (
                       <Link
-                        key={ch.id}
+                        key={`${ch.id}-${idx}`}
                         to={`/read/${encodeURIComponent(manga.id)}/${encodeURIComponent(ch.id)}`}
                         className="flex items-center justify-between gap-4 py-3 px-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800/60 amoled:hover:bg-zinc-950 transition-colors group"
                       >

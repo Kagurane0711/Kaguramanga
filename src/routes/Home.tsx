@@ -49,7 +49,7 @@ export default function Home() {
 
   const featured =
     page === 1 && category === 'all' && mangaList.length > 0 ? mangaList[0] : null;
-  const gridItems = featured ? mangaList.slice(1) : mangaList;
+  const gridItems = mangaList;
   const totalPages = metaData?.totalPages || 1;
 
   const typeOptions = metaData?.type || [
@@ -72,10 +72,10 @@ export default function Home() {
         {/* Featured Spotlight */}
         {featured && !loading && (
           <section className="bg-white dark:bg-[#18181b] amoled:bg-black border border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 rounded-2xl overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-12 items-stretch">
-              <div className="lg:col-span-8 p-6 sm:p-8 lg:p-10 flex flex-col justify-between gap-6">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <div className="flex flex-col sm:flex-row items-stretch">
+              <div className="flex-1 min-w-0 p-6 sm:p-7 lg:p-8 flex flex-col justify-between gap-5">
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                     <span className="text-rose-600 dark:text-rose-500 font-semibold">Featured Series</span>
                     <span aria-hidden="true">·</span>
                     <span className="font-mono-nums">{featured.chapter}</span>
@@ -86,10 +86,10 @@ export default function Home() {
                       </>
                     )}
                   </div>
-                  <h1 className="font-display text-2xl sm:text-4xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50 text-balance max-w-2xl">
+                  <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50 text-balance max-w-2xl">
                     {featured.title}
                   </h1>
-                  <p className="text-sm sm:text-base text-zinc-600 dark:text-zinc-400 leading-relaxed line-clamp-3 max-w-2xl">
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed line-clamp-3 max-w-2xl">
                     {featured.description || 'Explore chapters and artwork from this series.'}
                   </p>
                 </div>
@@ -104,15 +104,23 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="lg:col-span-4 bg-zinc-100 dark:bg-zinc-900 amoled:bg-zinc-950 min-h-[260px] lg:min-h-[320px] relative overflow-hidden">
-                {featured.image && (
-                  <img
-                    src={featured.image}
-                    alt={featured.title}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
-                  />
-                )}
+              <div className="flex justify-center px-6 pb-6 sm:p-0 sm:flex sm:items-stretch shrink-0">
+                <Link
+                  to={`/manga/${encodeURIComponent(featured.id)}`}
+                  aria-label={`Read ${featured.title}`}
+                  className="group block w-44 aspect-[3/4] rounded-xl sm:rounded-none sm:aspect-auto sm:w-48 sm:min-h-[256px] md:w-52 md:min-h-[276px] lg:w-[240px] lg:min-h-[320px] bg-zinc-100 dark:bg-zinc-900 amoled:bg-zinc-950 relative overflow-hidden"
+                >
+                  {featured.image && (
+                    <img
+                      src={featured.image}
+                      alt={featured.title}
+                      fetchPriority="high"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full sm:absolute sm:inset-0 object-cover object-center group-hover:scale-[1.03] transition-transform duration-200"
+                    />
+                  )}
+                </Link>
               </div>
             </div>
           </section>
@@ -185,7 +193,7 @@ export default function Home() {
             <h2 className="font-display text-xl font-bold text-zinc-950 dark:text-zinc-50">
               {category === 'all' ? 'Manga Catalog' : `Genre: ${category}`}
             </h2>
-            {metaData?.totalStories ? (
+            {!loading && metaData?.totalStories ? (
               <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono-nums">
                 {metaData.totalStories.toLocaleString()} titles
               </span>

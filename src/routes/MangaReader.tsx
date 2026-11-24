@@ -37,14 +37,12 @@ export default function MangaReader() {
     setPageIndex(0);
     setFailedPages({});
 
-    Promise.all([
-      mangaApi.getChapter(id, ch),
-      mangaApi.getDetail(id).catch(() => null),
-    ])
-      .then(([chapRes, detailRes]) => {
+    mangaApi
+      .getChapter(id, ch)
+      .then((chapRes) => {
         if (!active) return;
         setChapterData(chapRes.data);
-        const cover = detailRes?.data?.imageUrl || '';
+        const cover = chapRes.data.mangaImage || '';
         setMangaImage(cover);
         window.scrollTo({ top: 0 });
         void recordProgress({
@@ -68,7 +66,15 @@ export default function MangaReader() {
     };
   }, [id, ch, recordProgress]);
 
-  const chapterOrder = chapterData?.chapterListIds || [];
+  const chapterOrder = useMemo(() => {
+    const raw = chapterData?.chapterListIds || [];
+    const seen = new Set<string>();
+    return raw.filter((item) => {
+      if (!item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [chapterData]);
   const currentIdx = chapterOrder.findIndex((item) => item.id === ch);
   // chapterListIds is ordered newest -> oldest
   const nextChapter = currentIdx > 0 ? chapterOrder[currentIdx - 1] : null;
@@ -78,6 +84,12 @@ export default function MangaReader() {
       : null;
 
   const images = chapterData?.images || [];
+
+  // Background-prefetch the next chapter so clicking "Next Chapter" is instant
+  useEffect(() => {
+    if (!id || !nextChapter?.id || loading) return;
+    mangaApi.prefetchChapter(id, nextChapter.id);
+  }, [id, nextChapter?.id, loading]);
 
   const goToChapter = useCallback(
     (chapterId: string) => {
@@ -178,8 +190,8 @@ export default function MangaReader() {
                 aria-label="Select chapter"
                 className="max-w-[140px] sm:max-w-[210px] px-2.5 py-1.5 text-xs bg-white border border-zinc-300 text-zinc-900 dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-100 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-rose-500"
               >
-                {chapterOrder.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
+                {chapterOrder.map((opt, idx) => (
+                  <option key={`${opt.id}-${idx}`} value={opt.id}>
                     {opt.name}
                   </option>
                 ))}
@@ -285,6 +297,8 @@ export default function MangaReader() {
                   src={getPageSrc(img.image, idx)}
                   alt={img.title || `Page ${idx + 1}`}
                   loading={idx < 3 ? 'eager' : 'lazy'}
+                  decoding="async"
+                  fetchPriority={idx === 0 ? 'high' : undefined}
                   referrerPolicy="no-referrer"
                   onError={() => markPageFailed(idx)}
                   className="w-full h-auto block select-none bg-zinc-100 dark:bg-zinc-900 amoled:bg-black"
