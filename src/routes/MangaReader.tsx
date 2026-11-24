@@ -37,12 +37,14 @@ export default function MangaReader() {
     setPageIndex(0);
     setFailedPages({});
 
-    mangaApi
-      .getChapter(id, ch)
-      .then((chapRes) => {
+    Promise.all([
+      mangaApi.getChapter(id, ch),
+      mangaApi.getDetail(id).catch(() => null),
+    ])
+      .then(([chapRes, detailRes]) => {
         if (!active) return;
         setChapterData(chapRes.data);
-        const cover = chapRes.data.mangaImage || '';
+        const cover = detailRes?.data?.imageUrl || '';
         setMangaImage(cover);
         window.scrollTo({ top: 0 });
         void recordProgress({
@@ -84,12 +86,6 @@ export default function MangaReader() {
       : null;
 
   const images = chapterData?.images || [];
-
-  // Background-prefetch the next chapter so clicking "Next Chapter" is instant
-  useEffect(() => {
-    if (!id || !nextChapter?.id || loading) return;
-    mangaApi.prefetchChapter(id, nextChapter.id);
-  }, [id, nextChapter?.id, loading]);
 
   const goToChapter = useCallback(
     (chapterId: string) => {
@@ -297,8 +293,6 @@ export default function MangaReader() {
                   src={getPageSrc(img.image, idx)}
                   alt={img.title || `Page ${idx + 1}`}
                   loading={idx < 3 ? 'eager' : 'lazy'}
-                  decoding="async"
-                  fetchPriority={idx === 0 ? 'high' : undefined}
                   referrerPolicy="no-referrer"
                   onError={() => markPageFailed(idx)}
                   className="w-full h-auto block select-none bg-zinc-100 dark:bg-zinc-900 amoled:bg-black"

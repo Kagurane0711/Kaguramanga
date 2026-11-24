@@ -57,155 +57,79 @@ api.interceptors.response.use(
   }
 );
 
-interface ClientCacheEntry<T> {
-  data: T;
-  expiresAt: number;
-}
-
-const clientCache = new Map<string, ClientCacheEntry<unknown>>();
-const clientInFlight = new Map<string, Promise<unknown>>();
-
-function cachedClientGet<T>(
-  key: string,
-  ttlMs: number,
-  fetcher: () => Promise<T>
-): Promise<{ data: T }> {
-  const now = Date.now();
-  const hit = clientCache.get(key) as ClientCacheEntry<T> | undefined;
-  if (hit && now < hit.expiresAt) {
-    return Promise.resolve({ data: hit.data });
-  }
-
-  const inflight = clientInFlight.get(key) as Promise<{ data: T }> | undefined;
-  if (inflight) return inflight;
-
-  const promise = fetcher()
-    .then((data) => {
-      if (clientCache.size > 120) {
-        const oldestKey = clientCache.keys().next().value;
-        if (oldestKey) clientCache.delete(oldestKey);
-      }
-      clientCache.set(key, { data, expiresAt: Date.now() + ttlMs });
-      return { data };
-    })
-    .finally(() => {
-      clientInFlight.delete(key);
-    });
-
-  clientInFlight.set(key, promise);
-  return promise;
-}
-
 export const mangaApi = {
   getGenres: async () => {
-    return cachedClientGet<{ genres: MetaOption[] }>('genres', 60 * 60_000, async () => {
-      const res = await api.get<{ genres: MetaOption[] }>('/genres');
-      return res.data;
-    });
+    return api.get<{ genres: MetaOption[] }>('/genres');
   },
 
-  getList: async (
-    params: {
-      page?: number;
-      type?: string;
-      state?: string;
-      category?: string;
-    } = {}
-  ) => {
-    const normalized = {
-      page: params.page ?? 1,
-      type: params.type ?? 'latest',
-      state: params.state ?? 'all',
-      category: params.category ?? 'all',
-    };
-    const key = `mangaList:${normalized.page}:${normalized.type}:${normalized.state}:${normalized.category}`;
-    return cachedClientGet<MangaListResponse>(key, 2 * 60_000, async () => {
-      const res = await api.get<MangaListResponse>('/mangaList', { params: normalized });
-      return {
-        ...res.data,
-        mangaList: (res.data.mangaList || []).map((m) => ({
-          ...m,
-          image: resolveMediaUrl(m.image),
-        })),
-      };
+  getList: async (params: {
+    page?: number;
+    type?: string;
+    state?: string;
+    category?: string;
+  } = {}) => {
+    const res = await api.get<MangaListResponse>('/mangaList', {
+      params: {
+        page: params.page ?? 1,
+        type: params.type ?? 'latest',
+        state: params.state ?? 'all',
+        category: params.category ?? 'all',
+      },
     });
+    res.data.mangaList = (res.data.mangaList || []).map((m) => ({
+      ...m,
+      image: resolveMediaUrl(m.image),
+    }));
+    return res;
   },
 
-  getManhwaList: async (
-    params: {
-      page?: number;
-      type?: string;
-      state?: string;
-      category?: string;
-    } = {}
-  ) => {
-    const normalized = {
-      page: params.page ?? 1,
-      type: params.type ?? 'latest',
-      state: params.state ?? 'all',
-      category: params.category ?? 'all',
-    };
-    const key = `manhwaList:${normalized.page}:${normalized.type}:${normalized.state}:${normalized.category}`;
-    return cachedClientGet<MangaListResponse>(key, 2 * 60_000, async () => {
-      const res = await api.get<MangaListResponse>('/manhwaList', { params: normalized });
-      return {
-        ...res.data,
-        mangaList: (res.data.mangaList || []).map((m) => ({
-          ...m,
-          image: resolveMediaUrl(m.image),
-        })),
-      };
+  getManhwaList: async (params: {
+    page?: number;
+    type?: string;
+    state?: string;
+    category?: string;
+  } = {}) => {
+    const res = await api.get<MangaListResponse>('/manhwaList', {
+      params: {
+        page: params.page ?? 1,
+        type: params.type ?? 'latest',
+        state: params.state ?? 'all',
+        category: params.category ?? 'all',
+      },
     });
+    res.data.mangaList = (res.data.mangaList || []).map((m) => ({
+      ...m,
+      image: resolveMediaUrl(m.image),
+    }));
+    return res;
   },
 
   getDetail: async (id: string) => {
-    const key = `detail:${id}`;
-    return cachedClientGet<MangaDetailResponse>(key, 3 * 60_000, async () => {
-      const res = await api.get<MangaDetailResponse>(`/manga/${encodeURIComponent(id)}`);
-      return {
-        ...res.data,
-        imageUrl: resolveMediaUrl(res.data.imageUrl),
-      };
-    });
+    const res = await api.get<MangaDetailResponse>(`/manga/${encodeURIComponent(id)}`);
+    res.data.imageUrl = resolveMediaUrl(res.data.imageUrl);
+    return res;
   },
 
   getChapter: async (id: string, chapterId: string) => {
-    const key = `chapter:${id}:${chapterId}`;
-    return cachedClientGet<ChapterDetailResponse>(key, 10 * 60_000, async () => {
-      const res = await api.get<ChapterDetailResponse>(
-        `/manga/${encodeURIComponent(id)}/${encodeURIComponent(chapterId)}`
-      );
-      return {
-        ...res.data,
-        mangaImage: resolveMediaUrl(res.data.mangaImage),
-        images: (res.data.images || []).map((img) => ({
-          ...img,
-          image: resolveMediaUrl(img.image),
-        })),
-      };
-    });
-  },
-
-  prefetchChapter: (id: string, chapterId: string) => {
-    void mangaApi.getChapter(id, chapterId).catch(() => {
-      // Ignore background prefetch errors
-    });
+    const res = await api.get<ChapterDetailResponse>(
+      `/manga/${encodeURIComponent(id)}/${encodeURIComponent(chapterId)}`
+    );
+    res.data.images = (res.data.images || []).map((img) => ({
+      ...img,
+      image: resolveMediaUrl(img.image),
+    }));
+    return res;
   },
 
   search: async (query: string, page = 1) => {
-    const key = `search:${query.trim().toLowerCase()}:${page}`;
-    return cachedClientGet<SearchResponse>(key, 2 * 60_000, async () => {
-      const res = await api.get<SearchResponse>(`/search/${encodeURIComponent(query)}`, {
-        params: { page },
-      });
-      return {
-        ...res.data,
-        mangaList: (res.data.mangaList || []).map((m) => ({
-          ...m,
-          image: resolveMediaUrl(m.image),
-        })),
-      };
+    const res = await api.get<SearchResponse>(`/search/${encodeURIComponent(query)}`, {
+      params: { page },
     });
+    res.data.mangaList = (res.data.mangaList || []).map((m) => ({
+      ...m,
+      image: resolveMediaUrl(m.image),
+    }));
+    return res;
   },
 };
 

@@ -19,97 +19,27 @@ const BROWSER_UA =
 
 interface CacheEntry<T> {
   value: T;
-  freshUntil: number;
-  staleUntil: number;
+  expiresAt: number;
 }
 
 const responseCache = new Map<string, CacheEntry<unknown>>();
-const inFlightRequests = new Map<string, Promise<unknown>>();
 
 function getCached<T>(key: string): T | null {
   const hit = responseCache.get(key);
   if (!hit) return null;
-  if (Date.now() > hit.freshUntil) {
-    if (Date.now() > hit.staleUntil) {
-      responseCache.delete(key);
-    }
+  if (Date.now() > hit.expiresAt) {
+    responseCache.delete(key);
     return null;
   }
   return hit.value as T;
 }
 
-function setCached<T>(key: string, value: T, freshMs: number, staleMs = freshMs * 4) {
-  if (responseCache.size > 300) {
+function setCached<T>(key: string, value: T, ttlMs: number) {
+  if (responseCache.size > 200) {
     const firstKey = responseCache.keys().next().value;
     if (firstKey) responseCache.delete(firstKey);
   }
-  const now = Date.now();
-  responseCache.set(key, {
-    value,
-    freshUntil: now + freshMs,
-    staleUntil: now + Math.max(freshMs, staleMs),
-  });
-}
-
-async function cachedFetch<T>(
-  key: string,
-  freshMs: number,
-  staleMs: number,
-  fetcher: () => Promise<T>
-): Promise<T> {
-  const now = Date.now();
-  const hit = responseCache.get(key) as CacheEntry<T> | undefined;
-
-  if (hit && now < hit.freshUntil) {
-    return hit.value;
-  }
-
-  const startRefresh = (): Promise<T> => {
-    const existing = inFlightRequests.get(key) as Promise<T> | undefined;
-    if (existing) return existing;
-    const promise = fetcher()
-      .then((value) => {
-        setCached(key, value, freshMs, staleMs);
-        return value;
-      })
-      .finally(() => {
-        inFlightRequests.delete(key);
-      });
-    inFlightRequests.set(key, promise);
-    return promise;
-  };
-
-  // Serve stale immediately while refreshing in the background
-  if (hit && now < hit.staleUntil) {
-    void startRefresh().catch(() => {
-      // Keep serving stale entry until staleUntil expires
-    });
-    return hit.value;
-  }
-
-  return startRefresh();
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIdx = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), items.length);
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const idx = nextIdx++;
-        if (idx >= items.length) break;
-        results[idx] = await worker(items[idx], idx);
-      }
-    })
-  );
-
-  return results;
+  responseCache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 export function toProxyImageUrl(rawUrl: string): string {
@@ -353,12 +283,7 @@ interface ResolvedHookCard {
   view: string;
 }
 
-interface SlugCacheEntry {
-  value: ResolvedHookCard | null;
-  expiresAt: number;
-}
-
-const slugMatchCache = new Map<string, SlugCacheEntry>();
+const slugMatchCache = new Map<string, CacheEntry<ResolvedHookCard | null>>();
 
 function getCachedSlugMatch(key: string): { hit: boolean; value: ResolvedHookCard | null } {
   const entry = slugMatchCache.get(key);
@@ -371,7 +296,7 @@ function getCachedSlugMatch(key: string): { hit: boolean; value: ResolvedHookCar
 }
 
 function setCachedSlugMatch(key: string, value: ResolvedHookCard | null) {
-  if (slugMatchCache.size > 2000) {
+  if (slugMatchCache.size > 1200) {
     const firstKey = slugMatchCache.keys().next().value;
     if (firstKey) slugMatchCache.delete(firstKey);
   }
@@ -491,7 +416,7 @@ async function resolveOnMangaHook(
   if (cached.hit) return cached.value;
 
   const triedSlugs = new Set<string>();
-  for (const query of candidateTitles.slice(0, 2)) {
+  for (const query of candidateTitles.slice(0, 3)) {
     const slugQuery = query
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
@@ -717,13 +642,13 @@ async function fetchOriginSeparatedList(params: {
     }
   };
 
-  // Resolve primary batch of 24 in one parallel wave (bounded to 24)
-  const primaryBatch = await mapWithConcurrency(allItems.slice(0, pageSize), 24, resolveItem);
+  // Resolve primary batch of 24 first
+  const primaryBatch = await Promise.all(allItems.slice(0, pageSize).map(resolveItem));
   appendResolved(primaryBatch);
 
   // Backfill from buffer if any primary items failed to match on MangaHook
   if (mangaList.length < pageSize && allItems.length > pageSize) {
-    const bufferBatch = await mapWithConcurrency(allItems.slice(pageSize), 12, resolveItem);
+    const bufferBatch = await Promise.all(allItems.slice(pageSize).map(resolveItem));
     appendResolved(bufferBatch);
   }
 
@@ -755,16 +680,13 @@ async function fetchOriginSeparatedList(params: {
   return { mangaList, metaData };
 }
 
-export async function fetchMangaList(
-  params: {
-    page?: number;
-    type?: string;
-    state?: string;
-    category?: string;
-    origin?: 'manga' | 'manhwa';
-  },
-  options: { prefetchNext?: boolean } = { prefetchNext: true }
-): Promise<MangaListResponse> {
+export async function fetchMangaList(params: {
+  page?: number;
+  type?: string;
+  state?: string;
+  category?: string;
+  origin?: 'manga' | 'manhwa';
+}): Promise<MangaListResponse> {
   const page = Math.max(1, Number(params.page) || 1);
   const type = (params.type || 'latest').toLowerCase();
   const state = (params.state || 'all').toLowerCase();
@@ -796,120 +718,94 @@ export async function fetchMangaList(
   }
 
   const cacheKey = `list:${origin}:${page}:${type}:${state}:${categorySlug}`;
-  const payload = await cachedFetch<MangaListResponse>(
-    cacheKey,
-    5 * 60_000,
-    30 * 60_000,
-    async () => {
-      try {
-        const separated = await fetchOriginSeparatedList({
-          page,
-          type,
-          state,
-          categorySlug,
-          origin,
-        });
-        if (separated.mangaList.length > 0) {
-          return separated;
-        }
-      } catch (err) {
-        console.warn(`Origin-separated ${origin} catalog fallback triggered:`, err);
-      }
+  const cached = getCached<MangaListResponse>(cacheKey);
+  if (cached) return cached;
 
-      // Fallback directly to MangaKakalove genre list if origin index is temporarily unavailable
-      let path: string;
-      if (origin === 'manhwa') {
-        const fallbackGenre = categorySlug === 'webtoons' ? 'webtoons' : 'manhwa';
-        path = `/genre/${encodeURIComponent(fallbackGenre)}?page=${page}`;
-      } else if (categorySlug !== 'all') {
-        const qs = new URLSearchParams({ page: String(page) });
-        if (type) qs.set('type', type);
-        if (state !== 'all') qs.set('state', state);
-        path = `/genre/${encodeURIComponent(categorySlug)}?${qs.toString()}`;
-      } else {
-        path = `/genre/manga?page=${page}`;
-      }
-
-      const html = await fetchHtml(`${MANGAKAKALOT_BASE}${path}`);
-      const $ = load(html);
-
-      const mangaList: MangaListItem[] = [];
-      $('.list-comic-item-wrap').each((_, el) => {
-        const card = $(el);
-        const link = card.find('a.list-story-item, h3 a').first();
-        const href = link.attr('href') || '';
-        const id = extractSlugFromHref(href);
-        const title = card.find('h3 a').first().text().trim() || link.attr('title')?.trim() || '';
-        if (!id || !title) return;
-
-        const imgEl = card.find('img').first();
-        const rawImage = imgEl.attr('data-src') || imgEl.attr('src') || '';
-        const chapter = card.find('.list-story-item-wrap-chapter').first().text().trim() || 'Latest';
-        const view = card.find('.aye_icon').first().text().trim() || '—';
-        const description = card
-          .find('p')
-          .first()
-          .text()
-          .replace(/\s+/g, ' ')
-          .replace(/More\.?\s*$/i, '')
-          .trim();
-
-        mangaList.push({
-          id,
-          image: toProxyImageUrl(rawImage),
-          title,
-          chapter,
-          view,
-          description,
-        });
-      });
-
-      const uniqueMangaList = dedupeById(mangaList);
-      const { totalStories, totalPages } = parsePagination($);
-      const metaData: MangaListMetaData = {
-        totalStories: totalStories || uniqueMangaList.length,
-        totalPages,
-        type: [
-          { id: 'latest', type: 'Latest', name: 'Latest' },
-          { id: 'topview', type: 'Top Read', name: 'Top Read' },
-          { id: 'newest', type: 'Newest', name: 'Newest' },
-        ],
-        state: [
-          { id: 'all', type: 'All', name: 'All' },
-          { id: 'Ongoing', type: 'Ongoing', name: 'Ongoing' },
-          { id: 'Completed', type: 'Completed', name: 'Completed' },
-        ],
-        category: GENRE_OPTIONS,
-      };
-
-      return { mangaList: uniqueMangaList, metaData };
+  try {
+    const payload = await fetchOriginSeparatedList({
+      page,
+      type,
+      state,
+      categorySlug,
+      origin,
+    });
+    if (payload.mangaList.length > 0) {
+      setCached(cacheKey, payload, 120_000);
+      return payload;
     }
-  );
-
-  // Prefetch next page in the background so pagination feels instant
-  if (
-    options.prefetchNext !== false &&
-    page < payload.metaData.totalPages &&
-    page <= 10
-  ) {
-    const nextKey = `list:${origin}:${page + 1}:${type}:${state}:${categorySlug}`;
-    if (!getCached(nextKey) && !inFlightRequests.has(nextKey)) {
-      void fetchMangaList(
-        { page: page + 1, type, state, category, origin },
-        { prefetchNext: false }
-      ).catch(() => {
-        // Ignore background prefetch errors
-      });
-    }
+  } catch (err) {
+    console.warn(`Origin-separated ${origin} catalog fallback triggered:`, err);
   }
 
-  return payload;
-}
+  // Fallback directly to MangaKakalove genre list if origin index is temporarily unavailable
+  let path: string;
+  if (origin === 'manhwa') {
+    const fallbackGenre = categorySlug === 'webtoons' ? 'webtoons' : 'manhwa';
+    path = `/genre/${encodeURIComponent(fallbackGenre)}?page=${page}`;
+  } else if (categorySlug !== 'all') {
+    const qs = new URLSearchParams({ page: String(page) });
+    if (type) qs.set('type', type);
+    if (state !== 'all') qs.set('state', state);
+    path = `/genre/${encodeURIComponent(categorySlug)}?${qs.toString()}`;
+  } else {
+    path = `/genre/manga?page=${page}`;
+  }
 
-export function warmCatalogCaches(): void {
-  // Pre-warm primary Discover pages on startup so first visitors hit warm cache
-  void fetchMangaList({ page: 1, type: 'latest', state: 'all', category: 'all', origin: 'manga' }, { prefetchNext: false }).catch(() => {});
-  void fetchMangaList({ page: 1, type: 'latest', state: 'all', category: 'all', origin: 'manhwa' }, { prefetchNext: false }).catch(() => {});
+  const html = await fetchHtml(`${MANGAKAKALOT_BASE}${path}`);
+  const $ = load(html);
+
+  const mangaList: MangaListItem[] = [];
+  $('.list-comic-item-wrap').each((_, el) => {
+    const card = $(el);
+    const link = card.find('a.list-story-item, h3 a').first();
+    const href = link.attr('href') || '';
+    const id = extractSlugFromHref(href);
+    const title = card.find('h3 a').first().text().trim() || link.attr('title')?.trim() || '';
+    if (!id || !title) return;
+
+    const imgEl = card.find('img').first();
+    const rawImage = imgEl.attr('data-src') || imgEl.attr('src') || '';
+    const chapter = card.find('.list-story-item-wrap-chapter').first().text().trim() || 'Latest';
+    const view = card.find('.aye_icon').first().text().trim() || '—';
+    const description = card
+      .find('p')
+      .first()
+      .text()
+      .replace(/\s+/g, ' ')
+      .replace(/More\.?\s*$/i, '')
+      .trim();
+
+    mangaList.push({
+      id,
+      image: toProxyImageUrl(rawImage),
+      title,
+      chapter,
+      view,
+      description,
+    });
+  });
+
+  const uniqueMangaList = dedupeById(mangaList);
+  const { totalStories, totalPages } = parsePagination($);
+  const metaData: MangaListMetaData = {
+    totalStories: totalStories || uniqueMangaList.length,
+    totalPages,
+    type: [
+      { id: 'latest', type: 'Latest', name: 'Latest' },
+      { id: 'topview', type: 'Top Read', name: 'Top Read' },
+      { id: 'newest', type: 'Newest', name: 'Newest' },
+    ],
+    state: [
+      { id: 'all', type: 'All', name: 'All' },
+      { id: 'Ongoing', type: 'Ongoing', name: 'Ongoing' },
+      { id: 'Completed', type: 'Completed', name: 'Completed' },
+    ],
+    category: GENRE_OPTIONS,
+  };
+
+  const payload: MangaListResponse = { mangaList: uniqueMangaList, metaData };
+  setCached(cacheKey, payload, 60_000);
+  return payload;
 }
 
 interface MirrorChaptersApiResponse {
@@ -975,86 +871,90 @@ export async function fetchMangaDetail(id: string): Promise<MangaDetailResponse>
   }
 
   const cacheKey = `manga:${id}`;
-  return cachedFetch<MangaDetailResponse>(cacheKey, 5 * 60_000, 30 * 60_000, async () => {
-    const [html, apiChapters] = await Promise.all([
-      fetchHtml(`${MANGAKAKALOT_BASE}/manga/${encodeURIComponent(id)}`),
-      fetchAllChapters(id).catch(() => [] as MangaChapterItem[]),
-    ]);
+  const cached = getCached<MangaDetailResponse>(cacheKey);
+  if (cached) return cached;
 
-    const $ = load(html);
-    const info = $('.manga-info-top');
+  const [html, apiChapters] = await Promise.all([
+    fetchHtml(`${MANGAKAKALOT_BASE}/manga/${encodeURIComponent(id)}`),
+    fetchAllChapters(id).catch(() => [] as MangaChapterItem[]),
+  ]);
 
-    const rawCover =
-      info.find('.manga-info-pic img').first().attr('data-src') ||
-      info.find('.manga-info-pic img').first().attr('src') ||
-      '';
+  const $ = load(html);
+  const info = $('.manga-info-top');
 
-    const name = info.find('.manga-info-text h1').first().text().trim() || id;
+  const rawCover =
+    info.find('.manga-info-pic img').first().attr('data-src') ||
+    info.find('.manga-info-pic img').first().attr('src') ||
+    '';
 
-    let author = 'Unknown Author';
-    let status = 'Ongoing';
-    let updated = '—';
-    let view = '—';
-    const genres: string[] = [];
+  const name = info.find('.manga-info-text h1').first().text().trim() || id;
 
-    info.find('.manga-info-text li').each((_, li) => {
-      const text = $(li).text().replace(/\s+/g, ' ').trim();
-      if (/^Author\(s\)/i.test(text)) {
-        author = text.replace(/^Author\(s\)\s*:\s*/i, '').trim() || author;
-      } else if (/^Status/i.test(text)) {
-        status = text.replace(/^Status\s*:\s*/i, '').trim() || status;
-      } else if (/^Last updated/i.test(text)) {
-        updated = text.replace(/^Last updated\s*:\s*/i, '').trim() || updated;
-      } else if (/^View/i.test(text)) {
-        view = text.replace(/^View\s*:\s*/i, '').trim() || view;
-      } else if ($(li).hasClass('genres') || /^Genres/i.test(text)) {
-        $(li)
-          .find('a')
-          .each((__, a) => {
-            const g = $(a).text().trim();
-            if (g) genres.push(g);
-          });
-      }
-    });
+  let author = 'Unknown Author';
+  let status = 'Ongoing';
+  let updated = '—';
+  let view = '—';
+  const genres: string[] = [];
 
-    const contentBox = $('#contentBox').clone();
-    contentBox.find('h2').remove();
-    const description = contentBox.text().replace(/\s+/g, ' ').trim() || 'No synopsis available.';
-
-    let chapterList = dedupeById(apiChapters);
-    if (chapterList.length === 0) {
-      const htmlChapters: MangaChapterItem[] = [];
-      $('.chapter-list .row').each((_, row) => {
-        const a = $(row).find('a').first();
-        const chHref = a.attr('href') || '';
-        const chSlug = chHref.split('/').filter(Boolean).pop() || '';
-        if (!chSlug) return;
-        htmlChapters.push({
-          id: chSlug,
-          path: `/chapter/${id}/${chSlug}`,
-          name: a.text().trim(),
-          view: $(row).find('span').eq(1).text().trim() || '—',
-          createdAt: $(row).find('span').eq(2).text().trim() || '—',
+  info.find('.manga-info-text li').each((_, li) => {
+    const text = $(li).text().replace(/\s+/g, ' ').trim();
+    if (/^Author\(s\)/i.test(text)) {
+      author = text.replace(/^Author\(s\)\s*:\s*/i, '').trim() || author;
+    } else if (/^Status/i.test(text)) {
+      status = text.replace(/^Status\s*:\s*/i, '').trim() || status;
+    } else if (/^Last updated/i.test(text)) {
+      updated = text.replace(/^Last updated\s*:\s*/i, '').trim() || updated;
+    } else if (/^View/i.test(text)) {
+      view = text.replace(/^View\s*:\s*/i, '').trim() || view;
+    } else if ($(li).hasClass('genres') || /^Genres/i.test(text)) {
+      $(li)
+        .find('a')
+        .each((__, a) => {
+          const g = $(a).text().trim();
+          if (g) genres.push(g);
         });
-      });
-      chapterList = dedupeById(htmlChapters);
     }
-
-    const uniqueGenres = Array.from(new Set(genres));
-
-    return {
-      id,
-      imageUrl: toProxyImageUrl(rawCover),
-      name,
-      author,
-      status,
-      updated,
-      view,
-      description,
-      genres: uniqueGenres,
-      chapterList,
-    };
   });
+
+  const contentBox = $('#contentBox').clone();
+  contentBox.find('h2').remove();
+  const description = contentBox.text().replace(/\s+/g, ' ').trim() || 'No synopsis available.';
+
+  let chapterList = dedupeById(apiChapters);
+  if (chapterList.length === 0) {
+    const htmlChapters: MangaChapterItem[] = [];
+    $('.chapter-list .row').each((_, row) => {
+      const a = $(row).find('a').first();
+      const chHref = a.attr('href') || '';
+      const chSlug = chHref.split('/').filter(Boolean).pop() || '';
+      if (!chSlug) return;
+      htmlChapters.push({
+        id: chSlug,
+        path: `/chapter/${id}/${chSlug}`,
+        name: a.text().trim(),
+        view: $(row).find('span').eq(1).text().trim() || '—',
+        createdAt: $(row).find('span').eq(2).text().trim() || '—',
+      });
+    });
+    chapterList = dedupeById(htmlChapters);
+  }
+
+  const uniqueGenres = Array.from(new Set(genres));
+
+  const detail: MangaDetailResponse = {
+    id,
+    imageUrl: toProxyImageUrl(rawCover),
+    name,
+    author,
+    status,
+    updated,
+    view,
+    description,
+    genres: uniqueGenres,
+    chapterList,
+  };
+
+  setCached(cacheKey, detail, 120_000);
+  return detail;
 }
 
 export async function fetchChapterDetail(
@@ -1069,7 +969,6 @@ export async function fetchChapterDetail(
     );
     return {
       ...data,
-      mangaImage: data.mangaImage ? toProxyImageUrl(data.mangaImage) : '',
       chapterListIds: dedupeById(data.chapterListIds || []),
       images: (data.images || []).map((img) => ({
         ...img,
@@ -1079,44 +978,47 @@ export async function fetchChapterDetail(
   }
 
   const cacheKey = `chapter:${mangaId}:${chapterId}`;
-  return cachedFetch<ChapterDetailResponse>(cacheKey, 15 * 60_000, 2 * 60 * 60_000, async () => {
-    const [html, detail] = await Promise.all([
-      fetchHtml(`${MANGAKAKALOT_BASE}/manga/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapterId)}`),
-      fetchMangaDetail(mangaId).catch(() => null),
-    ]);
+  const cached = getCached<ChapterDetailResponse>(cacheKey);
+  if (cached) return cached;
 
-    const $ = load(html);
-    const images: ChapterDetailResponse['images'] = [];
+  const [html, detail] = await Promise.all([
+    fetchHtml(`${MANGAKAKALOT_BASE}/manga/${encodeURIComponent(mangaId)}/${encodeURIComponent(chapterId)}`),
+    fetchMangaDetail(mangaId).catch(() => null),
+  ]);
 
-    $('.container-chapter-reader img').each((idx, img) => {
-      const raw = $(img).attr('src') || $(img).attr('data-src') || '';
-      if (!raw || raw.includes('404-avatar')) return;
-      images.push({
-        title: $(img).attr('title')?.trim() || $(img).attr('alt')?.trim() || `Page ${idx + 1}`,
-        image: toProxyImageUrl(raw),
-      });
+  const $ = load(html);
+  const images: ChapterDetailResponse['images'] = [];
+
+  $('.container-chapter-reader img').each((idx, img) => {
+    const raw = $(img).attr('src') || $(img).attr('data-src') || '';
+    if (!raw || raw.includes('404-avatar')) return;
+    images.push({
+      title: $(img).attr('title')?.trim() || $(img).attr('alt')?.trim() || `Page ${idx + 1}`,
+      image: toProxyImageUrl(raw),
     });
-
-    const matchedChapter = detail?.chapterList.find((c) => c.id === chapterId);
-    const h1Text = $('h1').first().text().trim();
-    const currentChapter =
-      matchedChapter?.name ||
-      h1Text.replace(detail?.name || '', '').trim() ||
-      chapterId.replace(/-/g, ' ');
-
-    return {
-      title: detail?.name || mangaId.replace(/-/g, ' '),
-      currentChapter,
-      mangaImage: detail?.imageUrl || '',
-      chapterListIds: dedupeById(
-        (detail?.chapterList || []).map((ch) => ({
-          id: ch.id,
-          name: ch.name,
-        }))
-      ),
-      images,
-    };
   });
+
+  const matchedChapter = detail?.chapterList.find((c) => c.id === chapterId);
+  const h1Text = $('h1').first().text().trim();
+  const currentChapter =
+    matchedChapter?.name ||
+    h1Text.replace(detail?.name || '', '').trim() ||
+    chapterId.replace(/-/g, ' ');
+
+  const payload: ChapterDetailResponse = {
+    title: detail?.name || mangaId.replace(/-/g, ' '),
+    currentChapter,
+    chapterListIds: dedupeById(
+      (detail?.chapterList || []).map((ch) => ({
+        id: ch.id,
+        name: ch.name,
+      }))
+    ),
+    images,
+  };
+
+  setCached(cacheKey, payload, 180_000);
+  return payload;
 }
 
 export async function searchManga(queryStr: string, page = 1): Promise<SearchResponse> {
@@ -1147,50 +1049,54 @@ export async function searchManga(queryStr: string, page = 1): Promise<SearchRes
   }
 
   const cacheKey = `search:${slugQuery}:${cleanPage}`;
-  return cachedFetch<SearchResponse>(cacheKey, 3 * 60_000, 15 * 60_000, async () => {
-    const html = await fetchHtml(
-      `${MANGAKAKALOT_BASE}/search/story/${encodeURIComponent(slugQuery)}?page=${cleanPage}`
-    );
-    const $ = load(html);
+  const cached = getCached<SearchResponse>(cacheKey);
+  if (cached) return cached;
 
-    const mangaList: MangaListItem[] = [];
-    $('.panel_story_list .story_item').each((_, el) => {
-      const card = $(el);
-      const link = card.find('h3.story_name a, a').first();
-      const href = link.attr('href') || '';
-      const id = extractSlugFromHref(href);
-      const title = card.find('h3.story_name a').first().text().trim() || link.text().trim();
-      if (!id || !title) return;
+  const html = await fetchHtml(
+    `${MANGAKAKALOT_BASE}/search/story/${encodeURIComponent(slugQuery)}?page=${cleanPage}`
+  );
+  const $ = load(html);
 
-      const imgEl = card.find('img').first();
-      const rawImage = imgEl.attr('src') || imgEl.attr('data-src') || '';
-      const chapter = card.find('.story_chapter a').first().text().trim() || 'Latest';
+  const mangaList: MangaListItem[] = [];
+  $('.panel_story_list .story_item').each((_, el) => {
+    const card = $(el);
+    const link = card.find('h3.story_name a, a').first();
+    const href = link.attr('href') || '';
+    const id = extractSlugFromHref(href);
+    const title = card.find('h3.story_name a').first().text().trim() || link.text().trim();
+    if (!id || !title) return;
 
-      let view = '—';
-      let description = '';
-      card.find('.story_item_right span').each((__, sp) => {
-        const txt = $(sp).text().replace(/\s+/g, ' ').trim();
-        if (/^View\s*:/i.test(txt)) {
-          view = txt.replace(/^View\s*:\s*/i, '').trim() || '—';
-        } else if (/^Author\(s\)/i.test(txt)) {
-          description = txt;
-        }
-      });
+    const imgEl = card.find('img').first();
+    const rawImage = imgEl.attr('src') || imgEl.attr('data-src') || '';
+    const chapter = card.find('.story_chapter a').first().text().trim() || 'Latest';
 
-      mangaList.push({
-        id,
-        image: toProxyImageUrl(rawImage),
-        title,
-        chapter,
-        view,
-        description,
-      });
+    let view = '—';
+    let description = '';
+    card.find('.story_item_right span').each((__, sp) => {
+      const txt = $(sp).text().replace(/\s+/g, ' ').trim();
+      if (/^View\s*:/i.test(txt)) {
+        view = txt.replace(/^View\s*:\s*/i, '').trim() || '—';
+      } else if (/^Author\(s\)/i.test(txt)) {
+        description = txt;
+      }
     });
 
-    const { totalPages } = parsePagination($);
-    return {
-      mangaList: dedupeById(mangaList),
-      metaData: { totalPages },
-    };
+    mangaList.push({
+      id,
+      image: toProxyImageUrl(rawImage),
+      title,
+      chapter,
+      view,
+      description,
+    });
   });
+
+  const { totalPages } = parsePagination($);
+  const payload: SearchResponse = {
+    mangaList: dedupeById(mangaList),
+    metaData: { totalPages },
+  };
+
+  setCached(cacheKey, payload, 60_000);
+  return payload;
 }
