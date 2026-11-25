@@ -431,7 +431,7 @@ async function getMangaDexTagMap(): Promise<Map<string, string>> {
   if (cached) return cached;
 
   const res = await fetch(`${MANGADEX_API_BASE}/manga/tag`, {
-    headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+    headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`MangaDex tag HTTP ${res.status}`);
@@ -638,7 +638,7 @@ async function fetchMangaDexStats(ids: string[]): Promise<Record<string, number>
     const qs = new URLSearchParams();
     for (const id of ids) qs.append('manga[]', id);
     const res = await fetch(`${MANGADEX_API_BASE}/statistics/manga?${qs.toString()}`, {
-      headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+      headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(3_500),
     });
     if (!res.ok) return {};
@@ -664,7 +664,7 @@ async function fetchMangaDexSeries(mdUuid: string): Promise<MangaDexListItem> {
     qs.append('includes[]', 'author');
     qs.append('includes[]', 'artist');
     const res = await fetch(`${MANGADEX_API_BASE}/manga/${encodeURIComponent(mdUuid)}?${qs.toString()}`, {
-      headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+      headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
@@ -686,7 +686,7 @@ async function fetchMangaDexChapters(mdUuid: string): Promise<MangaChapterItem[]
     const res = await fetch(
       `${MANGADEX_API_BASE}/manga/${encodeURIComponent(mdUuid)}/feed?${qs.toString()}`,
       {
-        headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+        headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
         signal: AbortSignal.timeout(10_000),
       }
     );
@@ -730,7 +730,7 @@ async function fetchMangaDexChapterImages(
   const res = await fetch(
     `${MANGADEX_API_BASE}/at-home/server/${encodeURIComponent(chapterUuid)}`,
     {
-      headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+      headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(12_000),
     }
   );
@@ -776,6 +776,18 @@ function mapMangaDexItemsToList(
 
 const MANGADEX_MAX_WINDOW = 10_000;
 const DEMOGRAPHIC_BUCKETS = ['shounen', 'seinen', 'shoujo', 'josei', 'none'] as const;
+const latestTotalsByFilter = new Map<string, { totalStories: number; totalPages: number }>();
+
+function recordLatestFilterTotal(filterKey: string, totalStories: number, pageSize = 24) {
+  if (!Number.isFinite(totalStories) || totalStories < 0) return;
+  const totalPages = Math.max(1, Math.ceil(totalStories / pageSize));
+  if (latestTotalsByFilter.size > 500) {
+    const oldestKey = latestTotalsByFilter.keys().next().value;
+    if (oldestKey) latestTotalsByFilter.delete(oldestKey);
+  }
+  latestTotalsByFilter.set(filterKey, { totalStories, totalPages });
+  setCached(`md-total:${filterKey}`, totalStories, 2 * 60_000, 5 * 60_000);
+}
 
 async function fetchOriginSeparatedList(params: {
   page: number;
@@ -859,7 +871,7 @@ async function fetchOriginSeparatedList(params: {
       qs.append('publicationDemographic[]', demographic);
     }
     const res = await fetch(`${MANGADEX_API_BASE}/manga?${qs.toString()}`, {
-      headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+      headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
       signal: AbortSignal.timeout(12_000),
     });
     if (!res.ok) {
@@ -902,15 +914,18 @@ async function fetchOriginSeparatedList(params: {
     allItems = mdData.data || [];
     totalStories =
       typeof mdData.total === 'number' && mdData.total >= 0 ? mdData.total : allItems.length;
+    recordLatestFilterTotal(filterKey, totalStories, pageSize);
   } else {
-    // Deep page (> 416): look up exact catalog total (cached) then serve via tail inversion or disjoint demographic partitions
+    // Deep page (> 416): look up latest catalog total then serve via tail inversion or disjoint demographic partitions
     totalStories = await cachedFetch<number>(
       `md-total:${filterKey}`,
-      10 * 60_000,
-      60 * 60_000,
+      2 * 60_000,
+      5 * 60_000,
       async () => {
         const probe = await fetchMdSlice(0, 1, 'desc');
-        return typeof probe.total === 'number' && probe.total >= 0 ? probe.total : 0;
+        const count = typeof probe.total === 'number' && probe.total >= 0 ? probe.total : 0;
+        recordLatestFilterTotal(filterKey, count, pageSize);
+        return count;
       }
     );
 
@@ -926,11 +941,27 @@ async function fetchOriginSeparatedList(params: {
       // Requested page exceeded totalPages and clamped back into the first 10,000 items
       const mdData = await fetchMdSlice(start, needed, 'desc');
       allItems = mdData.data || [];
+      if (typeof mdData.total === 'number' && mdData.total >= 0) {
+        totalStories = mdData.total;
+        recordLatestFilterTotal(filterKey, totalStories, pageSize);
+      }
     } else if (totalStories - start <= MANGADEX_MAX_WINDOW) {
       // Tail window (last 10,000 items): exact global ordering via ascending sort inversion
       const ascOffset = Math.max(0, totalStories - end);
       const mdData = await fetchMdSlice(ascOffset, needed, 'asc');
       allItems = [...(mdData.data || [])].reverse();
+      if (typeof mdData.total === 'number' && mdData.total >= 0) {
+        totalStories = mdData.total;
+        recordLatestFilterTotal(filterKey, totalStories, pageSize);
+      }
+    } else if (DEMOGRAPHIC_SLUGS.has(categorySlug)) {
+      // Already filtered by a single demographic: serve closest reachable boundary without corrupting totalStories
+      const mdData = await fetchMdSlice(MANGADEX_MAX_WINDOW - needed, needed, 'desc');
+      allItems = mdData.data || [];
+      if (typeof mdData.total === 'number' && mdData.total >= 0) {
+        totalStories = mdData.total;
+        recordLatestFilterTotal(filterKey, totalStories, pageSize);
+      }
     } else {
       // Middle band (> 10,000 from both start and end): traverse disjoint demographic partitions
       const topBoundary = Math.floor(MANGADEX_MAX_WINDOW / pageSize) * pageSize; // 9,984
@@ -938,8 +969,8 @@ async function fetchOriginSeparatedList(params: {
 
       const bucketTotals = await cachedFetch<Array<{ demo: string; total: number }>>(
         `md-buckets:${filterKey}`,
+        5 * 60_000,
         15 * 60_000,
-        60 * 60_000,
         async () =>
           Promise.all(
             DEMOGRAPHIC_BUCKETS.map(async (demo) => {
@@ -949,11 +980,16 @@ async function fetchOriginSeparatedList(params: {
           )
       );
 
+      const sumBuckets = Math.max(
+        1,
+        bucketTotals.reduce((acc, b) => acc + b.total, 0)
+      );
+
       const partitions = bucketTotals
         .filter((b) => b.total > 0)
         .map((b) => {
-          const skipTop = Math.floor((b.total * topBoundary) / Math.max(1, totalStories));
-          const skipBottom = Math.floor((b.total * bottomBoundary) / Math.max(1, totalStories));
+          const skipTop = Math.floor((b.total * topBoundary) / sumBuckets);
+          const skipBottom = Math.floor((b.total * bottomBoundary) / sumBuckets);
           const midSize = Math.max(0, b.total - skipTop - skipBottom);
           return { ...b, skipTop, midSize };
         })
@@ -1044,11 +1080,12 @@ export async function fetchMangaList(
     };
   }
 
+  const filterKey = `${origin}:${type}:${state}:${categorySlug}`;
   const cacheKey = `list:${origin}:${page}:${type}:${state}:${categorySlug}`;
   const payload = await cachedFetch<MangaListResponse>(
     cacheKey,
-    5 * 60_000,
-    30 * 60_000,
+    2 * 60_000,
+    10 * 60_000,
     async () => {
       try {
         const separated = await fetchOriginSeparatedList({
@@ -1153,6 +1190,22 @@ export async function fetchMangaList(
     }
   }
 
+  const latestTotal = latestTotalsByFilter.get(filterKey);
+  if (
+    latestTotal &&
+    (payload.metaData.totalStories !== latestTotal.totalStories ||
+      payload.metaData.totalPages !== latestTotal.totalPages)
+  ) {
+    return {
+      ...payload,
+      metaData: {
+        ...payload.metaData,
+        totalStories: latestTotal.totalStories,
+        totalPages: latestTotal.totalPages,
+      },
+    };
+  }
+
   return payload;
 }
 
@@ -1219,6 +1272,10 @@ async function resolveMdToHookSlug(mdUuid: string, item?: MangaDexListItem): Pro
 
   const match = await resolveOnMangaHook(`${origin}:${mdUuid}`, candidates);
   if (match?.id) {
+    if (mdToHookSlugCache.size >= 2000) {
+      const oldestKey = mdToHookSlugCache.keys().next().value;
+      if (oldestKey) mdToHookSlugCache.delete(oldestKey);
+    }
     mdToHookSlugCache.set(mdUuid, match.id);
     return match.id;
   }
@@ -1486,7 +1543,7 @@ async function searchMangaDex(queryStr: string, page: number): Promise<SearchRes
   qs.set('order[relevance]', 'desc');
 
   const res = await fetch(`${MANGADEX_API_BASE}/manga?${qs.toString()}`, {
-    headers: { 'User-Agent': 'PolinMangaReader/1.0', Accept: 'application/json' },
+    headers: { 'User-Agent': 'KaguraMangaReader/1.0', Accept: 'application/json' },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {

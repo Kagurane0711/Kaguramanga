@@ -1,0 +1,229 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function hasParentProfile(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // --- Validation Blueprints (synchronized verbatim with firebase-blueprint.json) ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'photoUrl', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoUrl', 'createdAt', 'updatedAt'])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isValidId(data.uid)
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 80
+        && data.photoUrl is string
+        && data.photoUrl.size() <= 512
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'updatedAt'])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isValidId(data.uid)
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 254
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBookmark(data, userId, bookmarkId) {
+      return data.keys().hasAll(['userId', 'mangaId', 'title', 'image', 'latestChapter', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'mangaId', 'title', 'image', 'latestChapter', 'createdAt', 'updatedAt'])
+        && data.userId is string
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && isValidId(data.userId)
+        && data.mangaId is string
+        && data.mangaId == bookmarkId
+        && isValidId(data.mangaId)
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 240
+        && data.image is string
+        && data.image.size() <= 1024
+        && data.latestChapter is string
+        && data.latestChapter.size() <= 120
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidReadingHistory(data, userId, historyId) {
+      return data.keys().hasAll(['userId', 'mangaId', 'mangaTitle', 'mangaImage', 'chapterId', 'chapterName', 'pageIndex', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['userId', 'mangaId', 'mangaTitle', 'mangaImage', 'chapterId', 'chapterName', 'pageIndex', 'createdAt', 'updatedAt'])
+        && data.userId is string
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && isValidId(data.userId)
+        && data.mangaId is string
+        && data.mangaId == historyId
+        && isValidId(data.mangaId)
+        && data.mangaTitle is string
+        && data.mangaTitle.size() >= 1
+        && data.mangaTitle.size() <= 240
+        && data.mangaImage is string
+        && data.mangaImage.size() <= 1024
+        && data.chapterId is string
+        && data.chapterId.size() >= 1
+        && data.chapterId.size() <= 180
+        && data.chapterName is string
+        && data.chapterName.size() >= 1
+        && data.chapterName.size() <= 160
+        && data.pageIndex is int
+        && data.pageIndex >= 0
+        && data.pageIndex <= 10000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Collection: /users/{userId} ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Update display name / avatar metadata
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt'])
+        );
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // --- PII Subcollection: /users/{userId}/private/{docId} ---
+      match /private/{docId} {
+        allow get: if isOwner(userId) && docId == 'info';
+        allow list: if false;
+
+        allow create: if isOwner(userId)
+          && docId == 'info'
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId);
+
+        allow update: if isOwner(userId)
+          && docId == 'info'
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId)
+          && (
+            // Action: Sync verified account email
+            incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt'])
+          );
+
+        allow delete: if isOwner(userId) && docId == 'info';
+      }
+
+      // --- Subcollection: /users/{userId}/bookmarks/{bookmarkId} ---
+      match /bookmarks/{bookmarkId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(bookmarkId) && hasParentProfile(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(bookmarkId)
+          && isValidBookmark(incoming(), userId, bookmarkId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId);
+
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(bookmarkId)
+          && isValidBookmark(incoming(), userId, bookmarkId)
+          && incoming().userId == existing().userId
+          && incoming().mangaId == existing().mangaId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId)
+          && (
+            // Action: Refresh bookmark metadata
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'image', 'latestChapter', 'updatedAt'])
+          );
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(bookmarkId) && hasParentProfile(userId);
+      }
+
+      // --- Subcollection: /users/{userId}/history/{historyId} ---
+      match /history/{historyId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(historyId) && hasParentProfile(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(historyId)
+          && isValidReadingHistory(incoming(), userId, historyId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId);
+
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(historyId)
+          && isValidReadingHistory(incoming(), userId, historyId)
+          && incoming().userId == existing().userId
+          && incoming().mangaId == existing().mangaId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && hasParentProfile(userId)
+          && (
+            // Action: Update chapter & page reading progress
+            incoming().diff(existing()).affectedKeys().hasOnly(['mangaTitle', 'mangaImage', 'chapterId', 'chapterName', 'pageIndex', 'updatedAt'])
+          );
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(historyId) && hasParentProfile(userId);
+      }
+    }
+  }
+}

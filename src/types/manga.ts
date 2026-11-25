@@ -78,6 +78,7 @@ export interface User {
   email: string;
   given_name: string;
   family_name: string;
+  photoUrl?: string;
 }
 
 export interface MangaBookmark {

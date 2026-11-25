@@ -72,9 +72,23 @@ export default function Genres() {
           setGenres(data.metaData.category);
           setGenresLoaded(true);
         }
+        const nextTotalStories = data.metaData?.totalStories || 0;
+        const nextTotalPages = nextTotalStories
+          ? Math.max(1, Math.ceil(nextTotalStories / 24))
+          : Math.max(1, data.metaData?.totalPages || 1);
         setMangaList(data.mangaList || []);
-        setTotalPages(data.metaData?.totalPages || 1);
-        setTotalStories(data.metaData?.totalStories || 0);
+        setTotalPages(nextTotalPages);
+        setTotalStories(nextTotalStories);
+        if (page > nextTotalPages) {
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev);
+              next.set('page', String(nextTotalPages));
+              return next;
+            },
+            { replace: true }
+          );
+        }
       })
       .catch((err) => {
         if (active) {
@@ -87,7 +101,7 @@ export default function Genres() {
     return () => {
       active = false;
     };
-  }, [category, brand, page]);
+  }, [category, brand, page, setSearchParams]);
 
   const groupCounts = useMemo(() => {
     const counts: Record<GenreGroupFilter, number> = {

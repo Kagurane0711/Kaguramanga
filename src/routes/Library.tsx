@@ -1,18 +1,16 @@
-import { useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BookOpen, Trash2 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import Navbar from '../components/Navbar.tsx';
 import Footer from '../components/Footer.tsx';
+import DeleteAccountModal from '../components/DeleteAccountModal.tsx';
 import useUsers from '../store/users.ts';
 
 export default function Library() {
   const navigate = useNavigate();
-  const { user, bookmarks, history, fetchLibrary, toggleBookmark, signOut } = useUsers();
-
-  useEffect(() => {
-    void fetchLibrary();
-  }, [fetchLibrary]);
+  const { user, bookmarks, history, toggleBookmark, signOut, deleteAccount } = useUsers();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const handleRemoveBookmark = async (mangaId: string, title: string) => {
     await toggleBookmark({ manga_id: mangaId, title, image: '' });
@@ -22,6 +20,13 @@ export default function Library() {
   const handleSignOut = async () => {
     await signOut();
     toast.info('Signed out.');
+    navigate('/');
+  };
+
+  const handleDeleteAccount = async () => {
+    await deleteAccount();
+    setDeleteModalOpen(false);
+    toast.success('Your account and all synced data have been permanently deleted.');
     navigate('/');
   };
 
@@ -43,15 +48,25 @@ export default function Library() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             {user ? (
-              <button
-                type="button"
-                onClick={() => void handleSignOut()}
-                className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded-lg whitespace-nowrap transition-colors"
-              >
-                Sign Out
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleSignOut()}
+                  className="px-4 py-2 text-xs font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded-lg whitespace-nowrap transition-colors cursor-pointer"
+                >
+                  Sign Out
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50/70 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/60 border border-rose-200 dark:border-rose-900/70 rounded-lg whitespace-nowrap transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Account</span>
+                </button>
+              </>
             ) : (
               <Link
                 to="/login"
@@ -193,6 +208,15 @@ export default function Library() {
       </main>
 
       <Footer />
+
+      <DeleteAccountModal
+        open={deleteModalOpen}
+        email={user?.email || ''}
+        bookmarksCount={bookmarks.length}
+        historyCount={history.length}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirmDelete={handleDeleteAccount}
+      />
     </div>
   );
 }

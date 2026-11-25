@@ -1,4 +1,4 @@
-# Polin Manga
+# Kagura Manga
 
 A full-stack **Manga & Korean Manhwa** web reader built with React 19, Vite, Tailwind CSS v4, and Express (TypeScript), featuring strict Japanese Manga vs. Korean Manhwa catalog separation, resilient multi-source chapter fetching, Light / Dark / AMOLED themes, and Vercel / Render / Docker deployment support.
 
@@ -7,8 +7,8 @@ A full-stack **Manga & Korean Manhwa** web reader built with React 19, Vite, Tai
 ## Features
 
 - **Separated Manga & Manhwa Catalogs**
-  - **Polin Manga (`/`)**: Japanese manga (`ja`, excluding vertical long-strip webtoons by default) with Featured Series spotlight, sort controls (**Latest**, **Top Read**, **Newest**), status filters (**All**, **Ongoing**, **Completed**), and genre filtering.
-  - **Polin Manhwa (`/manhwa`)**: Dedicated Korean manhwa (`ko`) catalog with its own featured spotlight and filters.
+  - **Kagura Manga (`/`)**: Japanese manga (`ja`, excluding vertical long-strip webtoons by default) with Featured Series spotlight, sort controls (**Latest**, **Top Read**, **Newest**), status filters (**All**, **Ongoing**, **Completed**), and genre filtering.
+  - **Kagura Manhwa (`/manhwa`)**: Dedicated Korean manhwa (`ko`) catalog with its own featured spotlight and filters.
 - **Full Genre & Tag Directory (`/genres`)**
   - Browse 80+ genres, demographics, themes, and formats with live text filtering and category tabs.
 - **Exact Counts & Deep Page Jump Pagination**
@@ -17,8 +17,8 @@ A full-stack **Manga & Korean Manhwa** web reader built with React 19, Vite, Tai
   - Supports navigating past upstream 10,000-offset limits via tail sort inversion and disjoint demographic partitioning.
 - **Seamless Manga Reader (`/read/:id/:ch`)**
   - Vertical strip (webtoon) and single-page reading modes, keyboard navigation, chapter switcher, reading progress tracking, and background prefetching of the next chapter.
-- **Personal Library & Reading History (`/library`)**
-  - Bookmark series and resume reading where you left off.
+- **Personal Library & Real-Time Cloud Sync (`/library`)**
+  - Sign in with Google via Firebase Authentication to sync bookmarks and reading progress across devices in real time with Firestore (guest local storage remains available when signed out).
 - **Three Built-in Themes**
   - Switch smoothly between **Light**, **Dark**, and **AMOLED** (pure black) with zero flash on page load.
 - **Performance & Serverless Resilience**
@@ -29,8 +29,9 @@ A full-stack **Manga & Korean Manhwa** web reader built with React 19, Vite, Tai
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite 8, React Router 7, Tailwind CSS v4, Zustand, Lucide Icons, Motion, React Toastify
+- **Frontend**: React 19, TypeScript, Vite 8, React Router 7, Tailwind CSS v4, Zustand, Firebase Auth & Firestore, Lucide Icons, Motion, React Toastify
 - **Backend**: Express 4, TypeScript (`tsx`), Cheerio, `compression`
+- **Security**: Hardened Firestore security rules, Content-Security-Policy headers (`vercel.json` & `server.ts`), SSRF/SVG-safe image proxy, per-IP rate limiting
 - **Deployment**: Vercel Serverless (`/api/index.ts` + `vercel.json`), Render (`render.yaml`), Docker (`Dockerfile`)
 
 ---
@@ -118,11 +119,8 @@ All API endpoints are mounted under `/api`:
 | `GET` | `/api/manga/:id/:ch` | Chapter page image URLs, navigation metadata, and series cover |
 | `GET` | `/api/search/:query` | Search titles with automatic MangaDex fallback |
 | `GET` | `/api/proxy/image?url=...` | Allowlisted HTTPS image proxy with cover LRU cache & page streaming |
-| `POST` | `/api/auth/login` | Email or demo session sign-in |
-| `GET` | `/api/auth/token/renew` | Renew session access token |
-| `POST` | `/api/auth/logout` | Revoke active session |
-| `GET` / `PUT` / `DELETE` | `/api/user/library` | Manage saved bookmarks |
-| `PUT` | `/api/user/history` | Save chapter reading progress |
+
+> User authentication, bookmarks, and reading history sync directly with **Firebase Authentication** and **Cloud Firestore** (protected by owner-only rules in `firestore.rules`).
 
 ---
 
@@ -175,6 +173,6 @@ Use the included `render.yaml` Blueprint to deploy the Dockerized full-stack ser
 ### Docker
 
 ```bash
-docker build -t polin-manga .
-docker run -p 10000:10000 -e PORT=10000 polin-manga
+docker build -t kagura-manga .
+docker run -p 10000:10000 -e PORT=10000 kagura-manga
 ```

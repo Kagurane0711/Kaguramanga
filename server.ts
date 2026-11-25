@@ -13,9 +13,33 @@ async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
 
+  app.disable('x-powered-by');
   app.use(compression({ threshold: 1024 }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+
+  const SITE_CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://apis.google.com https://www.gstatic.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com",
+    "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com",
+    "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ');
+
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (process.env.NODE_ENV === 'production' && !req.path.startsWith('/api')) {
+      res.setHeader('Content-Security-Policy', SITE_CSP);
+    }
+    next();
+  });
 
   const allowedOrigins = (process.env.CORS_ORIGIN?.trim() || 'http://localhost:3000')
     .split(',')
@@ -24,7 +48,17 @@ async function startServer() {
 
   app.use('/api', (req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && (allowedOrigins.includes('*') || allowedOrigins.includes(origin))) {
+    const isAuthScoped = req.path.startsWith('/auth') || req.path.startsWith('/user');
+    const requestHost = req.headers['x-forwarded-host'] || req.headers.host;
+    const isSameOrigin = Boolean(
+      origin &&
+        requestHost &&
+        (origin === `https://${requestHost}` || origin === `http://${requestHost}`)
+    );
+    const explicitMatch = Boolean(origin && allowedOrigins.includes(origin));
+    const wildcardAllowed = !isAuthScoped && allowedOrigins.includes('*');
+
+    if (origin && (isSameOrigin || explicitMatch || wildcardAllowed)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }

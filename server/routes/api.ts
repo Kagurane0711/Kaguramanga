@@ -1,8 +1,8 @@
+import net from 'node:net';
 import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import { db } from '../db.ts';
 import {
   GENRE_OPTIONS,
   fetchChapterDetail,
@@ -10,33 +10,121 @@ import {
   fetchMangaList,
   searchManga,
 } from '../services/mangahook.ts';
-import type { UserRecord } from '../types.ts';
 
-interface AuthRequest extends Request {
-  user?: UserRecord;
+const SAFE_RASTER_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+]);
+
+const MAX_PROXY_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB cap on proxied images
+const MAX_PROXY_REDIRECTS = 2;
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
 }
 
-function extractBearerToken(req: Request): string | null {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) return null;
-  return header.slice('Bearer '.length).trim();
+function createRateLimiter(options: { windowMs: number; max: number }) {
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const key = getClientIp(req);
+    const existing = buckets.get(key);
+
+    if (!existing || now >= existing.resetAt) {
+      if (buckets.size > 5000) {
+        for (const [ip, entry] of buckets) {
+          if (now >= entry.resetAt) buckets.delete(ip);
+          if (buckets.size <= 2500) break;
+        }
+      }
+      buckets.set(key, { count: 1, resetAt: now + options.windowMs });
+      return next();
+    }
+
+    existing.count += 1;
+    if (existing.count > options.max) {
+      const retryAfterSec = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSec));
+      return res.status(429).json({ message: 'Too many requests. Please try again shortly.' });
+    }
+    return next();
+  };
 }
 
-function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  const token = extractBearerToken(req);
-  if (!token) {
-    return res.status(401).json({ message: 'Authentication required.' });
+function isPrivateOrBlockedHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    lower === 'localhost' ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal')
+  ) {
+    return true;
   }
-  const user = db.getUserByToken(token);
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid or expired session.' });
+
+  const ipVersion = net.isIP(lower);
+  if (ipVersion === 4) {
+    const parts = lower.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
   }
-  req.user = user;
-  next();
+
+  if (ipVersion === 6) {
+    if (lower === '::1' || lower === '::') return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80:')) return true;
+    if (lower.startsWith('::ffff:')) {
+      const mapped = lower.slice('::ffff:'.length);
+      return isPrivateOrBlockedHost(mapped);
+    }
+    return false;
+  }
+
+  return false;
+}
+
+function validateProxyTarget(rawUrl: string, allowedImageHosts: string[]): URL | null {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:') return null;
+    if (parsed.username || parsed.password) return null;
+    if (parsed.port && parsed.port !== '443') return null;
+
+    const hostname = parsed.hostname.toLowerCase();
+    if (!hostname || isPrivateOrBlockedHost(hostname)) return null;
+
+    const hostAllowed = allowedImageHosts.some(
+      (host) => hostname === host || hostname.endsWith(`.${host}`)
+    );
+    return hostAllowed ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeText(raw: unknown, maxLen: number): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().slice(0, maxLen);
 }
 
 export function createApiRouter() {
   const router = express.Router();
+  const searchRateLimit = createRateLimiter({ windowMs: 60_000, max: 60 });
+
   const allowedImageHosts = (
     process.env.IMAGE_PROXY_ALLOWED_HOSTS ||
     '2xstorage.com,mangakakalove.com,mangakakalot.gg,mangakakalot.tv,mkklcdnv6temp.com,mkklcdnv6.com,uploads.mangadex.org,mangadex.network,mangadex.org'
@@ -59,7 +147,6 @@ export function createApiRouter() {
       coverCacheBytes -= hit.buf.byteLength;
       return null;
     }
-    // Refresh LRU position
     coverCache.delete(url);
     coverCache.set(url, hit);
     return hit;
@@ -88,7 +175,7 @@ export function createApiRouter() {
   };
 
   router.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', provider: 'MangaHook API' });
+    res.json({ status: 'ok' });
   });
 
   router.get('/genres', (_req: Request, res: Response) => {
@@ -99,52 +186,53 @@ export function createApiRouter() {
     res.json({ genres: GENRE_OPTIONS });
   });
 
-  // --- MangaHook API Endpoints ---
+  // --- Catalog Endpoints ---
   router.get('/mangaList', async (req: Request, res: Response) => {
     try {
       const page = Number(req.query.page ?? 1);
-      const type = typeof req.query.type === 'string' ? req.query.type : 'latest';
-      const state = typeof req.query.state === 'string' ? req.query.state : 'all';
-      const category = typeof req.query.category === 'string' ? req.query.category : 'all';
+      const type = typeof req.query.type === 'string' ? req.query.type.slice(0, 32) : 'latest';
+      const state = typeof req.query.state === 'string' ? req.query.state.slice(0, 32) : 'all';
+      const category =
+        typeof req.query.category === 'string' ? req.query.category.slice(0, 64) : 'all';
 
       const data = await fetchMangaList({ page, type, state, category, origin: 'manga' });
       res.setHeader(
         'Cache-Control',
-        'public, max-age=60, s-maxage=300, stale-while-revalidate=3600'
+        'public, max-age=30, s-maxage=60, stale-while-revalidate=300'
       );
       res.json(data);
     } catch (err) {
       console.error('GET /api/mangaList error:', err);
-      res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga list from MangaHook.',
-      });
+      res.status(502).json({ message: 'Unable to load manga catalog right now. Please try again.' });
     }
   });
 
   router.get('/manhwaList', async (req: Request, res: Response) => {
     try {
       const page = Number(req.query.page ?? 1);
-      const type = typeof req.query.type === 'string' ? req.query.type : 'latest';
-      const state = typeof req.query.state === 'string' ? req.query.state : 'all';
-      const category = typeof req.query.category === 'string' ? req.query.category : 'all';
+      const type = typeof req.query.type === 'string' ? req.query.type.slice(0, 32) : 'latest';
+      const state = typeof req.query.state === 'string' ? req.query.state.slice(0, 32) : 'all';
+      const category =
+        typeof req.query.category === 'string' ? req.query.category.slice(0, 64) : 'all';
 
       const data = await fetchMangaList({ page, type, state, category, origin: 'manhwa' });
       res.setHeader(
         'Cache-Control',
-        'public, max-age=60, s-maxage=300, stale-while-revalidate=3600'
+        'public, max-age=30, s-maxage=60, stale-while-revalidate=300'
       );
       res.json(data);
     } catch (err) {
       console.error('GET /api/manhwaList error:', err);
-      res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manhwa list from MangaHook.',
-      });
+      res.status(502).json({ message: 'Unable to load manhwa catalog right now. Please try again.' });
     }
   });
 
   router.get('/manga/:id', async (req: Request, res: Response) => {
     try {
-      const id = String(req.params.id);
+      const id = sanitizeText(req.params.id, 180);
+      if (!id) {
+        return res.status(400).json({ message: 'Invalid series identifier.' });
+      }
       const data = await fetchMangaDetail(id);
       res.setHeader(
         'Cache-Control',
@@ -153,16 +241,17 @@ export function createApiRouter() {
       res.json(data);
     } catch (err) {
       console.error('GET /api/manga/:id error:', err);
-      res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch manga details from MangaHook.',
-      });
+      res.status(502).json({ message: 'Unable to load series details right now. Please try again.' });
     }
   });
 
   router.get('/manga/:id/:ch', async (req: Request, res: Response) => {
     try {
-      const id = String(req.params.id);
-      const ch = String(req.params.ch);
+      const id = sanitizeText(req.params.id, 180);
+      const ch = sanitizeText(req.params.ch, 180);
+      if (!id || !ch) {
+        return res.status(400).json({ message: 'Invalid chapter identifier.' });
+      }
       const data = await fetchChapterDetail(id, ch);
       res.setHeader(
         'Cache-Control',
@@ -171,15 +260,13 @@ export function createApiRouter() {
       res.json(data);
     } catch (err) {
       console.error('GET /api/manga/:id/:ch error:', err);
-      res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to fetch chapter images from MangaHook.',
-      });
+      res.status(502).json({ message: 'Unable to load chapter pages right now. Please try again.' });
     }
   });
 
-  router.get('/search/:query', async (req: Request, res: Response) => {
+  router.get('/search/:query', searchRateLimit, async (req: Request, res: Response) => {
     try {
-      const query = String(req.params.query || '');
+      const query = sanitizeText(req.params.query, 120);
       const page = Number(req.query.page ?? 1);
       const data = await searchManga(query, page);
       res.setHeader(
@@ -189,76 +276,105 @@ export function createApiRouter() {
       res.json(data);
     } catch (err) {
       console.error('GET /api/search/:query error:', err);
-      res.status(502).json({
-        message: err instanceof Error ? err.message : 'Failed to search MangaHook.',
-      });
+      res.status(502).json({ message: 'Search is temporarily unavailable. Please try again.' });
     }
   });
 
-  // --- Image Proxy (bypasses CDN Referer / CORS blocks; caches covers + streams chapter pages) ---
+  // --- Hardened Image Proxy (allowlist + redirect re-check + raster-only MIME + size cap) ---
   router.get('/proxy/image', async (req: Request, res: Response) => {
-    const target = String(req.query.url || '');
-    if (!target || (!target.startsWith('https://') && !target.startsWith('http://'))) {
+    const target = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+    if (!target || target.length > 2048) {
       return res.status(400).send('Invalid image URL');
     }
 
-    try {
-      const parsed = new URL(target);
-      const hostname = parsed.hostname.toLowerCase();
-      const hostAllowed = allowedImageHosts.some(
-        (host) => hostname === host || hostname.endsWith(`.${host}`)
-      );
-      if (parsed.protocol !== 'https:' || !hostAllowed) {
-        return res.status(403).send('Image host is not allowed');
-      }
+    const initialParsed = validateProxyTarget(target, allowedImageHosts);
+    if (!initialParsed) {
+      return res.status(403).send('Image host is not allowed');
+    }
 
+    try {
       // Fast path: serve cached cover thumbnails directly from memory (<1ms)
-      const cached = getCachedCover(target);
+      const cached = getCachedCover(initialParsed.toString());
       if (cached) {
         res.setHeader('Content-Type', cached.contentType);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
         res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, immutable');
         return res.send(cached.buf);
       }
 
-      const isKakalotCdn =
-        hostname.includes('2xstorage') ||
-        hostname.includes('mangakakalove') ||
-        hostname.includes('mangakakalot') ||
-        hostname.includes('mkklcdn') ||
-        hostname.includes('blazefast');
+      const fetchValidatedImage = async (startUrl: URL): Promise<globalThis.Response | null> => {
+        let currentUrl = startUrl;
+        for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
+          const hostname = currentUrl.hostname.toLowerCase();
+          const isKakalotCdn =
+            hostname.includes('2xstorage') ||
+            hostname.includes('mangakakalove') ||
+            hostname.includes('mangakakalot') ||
+            hostname.includes('mkklcdn') ||
+            hostname.includes('blazefast');
 
-      const headers: Record<string, string> = {
-        'User-Agent': isKakalotCdn
-          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-          : 'PolinMangaReader/1.0',
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          const headers: Record<string, string> = {
+            'User-Agent': isKakalotCdn
+              ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+              : 'KaguraMangaReader/1.0',
+            Accept: 'image/avif,image/webp,image/apng,image/png,image/jpeg,image/gif,*/*;q=0.5',
+          };
+          if (isKakalotCdn) {
+            headers.Referer = 'https://www.mangakakalove.com/';
+          }
+
+          const upstream = await fetch(currentUrl.toString(), {
+            headers,
+            redirect: 'manual',
+            signal: AbortSignal.timeout(15_000),
+          });
+
+          if (upstream.status >= 300 && upstream.status < 400) {
+            const location = upstream.headers.get('location');
+            if (!location || hop === MAX_PROXY_REDIRECTS) return null;
+            const resolvedRedirect = new URL(location, currentUrl).toString();
+            const validatedNext = validateProxyTarget(resolvedRedirect, allowedImageHosts);
+            if (!validatedNext) return null;
+            currentUrl = validatedNext;
+            continue;
+          }
+
+          return upstream;
+        }
+        return null;
       };
-      if (isKakalotCdn) {
-        headers.Referer = 'https://www.mangakakalove.com/';
-      }
 
-      const upstream = await fetch(target, {
-        headers,
-        signal: AbortSignal.timeout(15_000),
-      });
+      const upstream = await fetchValidatedImage(initialParsed);
+      if (!upstream) {
+        return res.status(403).send('Image redirect blocked');
+      }
 
       if (!upstream.ok) {
         return res.status(upstream.status).send('Failed to load image');
       }
 
-      const contentType = upstream.headers.get('content-type') || 'image/jpeg';
-      if (!contentType.startsWith('image/')) {
-        return res.status(415).send('Unsupported content type');
+      const rawContentType = (upstream.headers.get('content-type') || '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      if (!SAFE_RASTER_IMAGE_TYPES.has(rawContentType)) {
+        return res.status(415).send('Unsupported image content type');
       }
 
       const contentLength = Number(upstream.headers.get('content-length') || '0');
-      res.setHeader('Content-Type', contentType);
+      if (contentLength > MAX_PROXY_IMAGE_BYTES) {
+        return res.status(413).send('Image exceeds size limit');
+      }
+
+      res.setHeader('Content-Type', rawContentType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, immutable');
 
-      // Cache small covers in memory; stream large chapter pages directly to avoid RAM buffering
       if (contentLength > 0 && contentLength <= MAX_COVER_ITEM_BYTES) {
         const buf = Buffer.from(await upstream.arrayBuffer());
-        setCachedCover(target, buf, contentType);
+        setCachedCover(initialParsed.toString(), buf, rawContentType);
         return res.send(buf);
       }
 
@@ -267,6 +383,13 @@ export function createApiRouter() {
           res.setHeader('Content-Length', String(contentLength));
         }
         const nodeStream = Readable.fromWeb(upstream.body as unknown as WebReadableStream);
+        let streamedBytes = 0;
+        nodeStream.on('data', (chunk: Buffer) => {
+          streamedBytes += chunk.byteLength;
+          if (streamedBytes > MAX_PROXY_IMAGE_BYTES) {
+            nodeStream.destroy(new Error('Image exceeds size limit'));
+          }
+        });
         nodeStream.on('error', () => {
           if (!res.headersSent) {
             res.status(502).send('Image stream error');
@@ -279,7 +402,10 @@ export function createApiRouter() {
       }
 
       const buf = Buffer.from(await upstream.arrayBuffer());
-      setCachedCover(target, buf, contentType);
+      if (buf.byteLength > MAX_PROXY_IMAGE_BYTES) {
+        return res.status(413).send('Image exceeds size limit');
+      }
+      setCachedCover(initialParsed.toString(), buf, rawContentType);
       res.send(buf);
     } catch (err) {
       console.error('Image proxy error:', err);
@@ -289,90 +415,8 @@ export function createApiRouter() {
     }
   });
 
-  // --- Auth & User Library ---
-  router.post('/auth/login', (req: Request, res: Response) => {
-    const { email, given_name, family_name, demo } = req.body || {};
-    const resolvedEmail = demo ? 'reader@polin.manga' : String(email || '').trim();
-    if (!resolvedEmail) {
-      return res.status(400).json({ message: 'Email is required.' });
-    }
-    const { user, session } = db.loginWithEmail({
-      email: resolvedEmail,
-      given_name: demo ? 'Manga' : given_name,
-      family_name: demo ? 'Reader' : family_name,
-    });
-    res.json({
-      access_token: session.token,
-      refresh_token: session.refresh_token,
-      expires_in: Math.floor((session.expires_at - Date.now()) / 1000),
-      user,
-    });
-  });
-
-  router.get('/auth/token/renew', (req: Request, res: Response) => {
-    const refresh = String(req.query.refresh_token || '');
-    const renewed = refresh ? db.renewSession(refresh) : null;
-    if (!renewed) {
-      return res.status(401).json({ message: 'Invalid refresh token.' });
-    }
-    res.json({
-      access_token: renewed.token,
-      refresh_token: renewed.refresh_token,
-      expires_in: Math.floor((renewed.expires_at - Date.now()) / 1000),
-    });
-  });
-
-  router.post('/auth/logout', (req: Request, res: Response) => {
-    const token = extractBearerToken(req);
-    if (token) db.revokeToken(token);
-    res.json({ ok: true });
-  });
-
-  router.get('/user/profile', requireAuth, (req: AuthRequest, res: Response) => {
-    res.json(req.user);
-  });
-
-  router.get('/user/library', requireAuth, (req: AuthRequest, res: Response) => {
-    res.json({
-      bookmarks: db.getBookmarks(req.user!.id),
-      history: db.getHistory(req.user!.id),
-    });
-  });
-
-  router.put('/user/library', requireAuth, (req: AuthRequest, res: Response) => {
-    const { manga_id, title, image, latest_chapter } = req.body || {};
-    if (!manga_id || !title) {
-      return res.status(400).json({ message: 'manga_id and title are required.' });
-    }
-    const saved = db.upsertBookmark(req.user!.id, {
-      manga_id: String(manga_id),
-      title: String(title),
-      image: String(image || ''),
-      latest_chapter: latest_chapter ? String(latest_chapter) : '',
-    });
-    res.json(saved);
-  });
-
-  router.delete('/user/library/:mangaId', requireAuth, (req: AuthRequest, res: Response) => {
-    db.removeBookmark(req.user!.id, String(req.params.mangaId));
-    res.json({ ok: true });
-  });
-
-  router.put('/user/history', requireAuth, (req: AuthRequest, res: Response) => {
-    const { manga_id, manga_title, manga_image, chapter_id, chapter_name, page_index } =
-      req.body || {};
-    if (!manga_id || !chapter_id) {
-      return res.status(400).json({ message: 'manga_id and chapter_id are required.' });
-    }
-    const saved = db.saveHistory(req.user!.id, {
-      manga_id: String(manga_id),
-      manga_title: String(manga_title || ''),
-      manga_image: String(manga_image || ''),
-      chapter_id: String(chapter_id),
-      chapter_name: String(chapter_name || ''),
-      page_index: Number(page_index) || 0,
-    });
-    res.json(saved);
+  router.use((_req: Request, res: Response) => {
+    res.status(404).json({ message: 'API route not found.' });
   });
 
   return router;

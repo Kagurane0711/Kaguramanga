@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, Menu, X } from 'lucide-react';
 import useUsers from '../store/users.ts';
 import useCatalogBrand, { type CatalogBrand } from '../store/catalogMode.ts';
-import { getAccessToken } from '../authProvider.ts';
 import ThemeToggle from './ThemeToggle.tsx';
 
 const BRAND_OPTIONS: Array<{
@@ -14,13 +13,13 @@ const BRAND_OPTIONS: Array<{
 }> = [
   {
     id: 'manga',
-    name: 'Polin Manga',
+    name: 'Kagura Manga',
     description: 'Japanese manga catalog & latest chapters',
     to: '/',
   },
   {
     id: 'manhwa',
-    name: 'Polin Manhwa',
+    name: 'Kagura Manhwa',
     description: 'Korean manhwa & full-color webtoons',
     to: '/manhwa',
   },
@@ -31,17 +30,10 @@ export default function Navbar() {
   const [brandMenuOpen, setBrandMenuOpen] = useState(false);
   const brandDropdownRef = useRef<HTMLDivElement>(null);
 
-  const { user, fetchUser, fetchLibrary } = useUsers();
+  const { user, loggedIn } = useUsers();
   const { brand, setBrand } = useCatalogBrand();
   const location = useLocation();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const token = getAccessToken();
-    if (token && !user) {
-      void fetchUser().then(() => fetchLibrary());
-    }
-  }, [user, fetchUser, fetchLibrary]);
 
   // Keep active catalog brand synced with root catalog routes
   useEffect(() => {
@@ -85,7 +77,7 @@ export default function Navbar() {
 
   const activeBrand =
     BRAND_OPTIONS.find((opt) => opt.id === brand) || BRAND_OPTIONS[0];
-  const isLoggedIn = Boolean(user || getAccessToken());
+  const isLoggedIn = Boolean(user && loggedIn);
 
   const navLinks = [
     { to: activeBrand.to, label: 'Discover' },
@@ -103,16 +95,22 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#111114]/95 amoled:bg-black/95 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 amoled:border-zinc-900 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-        {/* Zone 1: Brand switcher dropdown (Polin Manga / Polin Manhwa) */}
+        {/* Zone 1: Brand switcher dropdown (Kagura Manga / Kagura Manhwa) */}
         <div ref={brandDropdownRef} className="relative shrink-0">
           <button
             type="button"
             onClick={() => setBrandMenuOpen((prev) => !prev)}
             aria-haspopup="menu"
             aria-expanded={brandMenuOpen}
-            aria-label="Switch between Polin Manga and Polin Manhwa"
-            className="inline-flex items-center gap-1.5 py-1.5 -ml-2 px-2 rounded-lg font-display text-xl font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50 hover:bg-zinc-100 dark:hover:bg-zinc-800/70 amoled:hover:bg-zinc-900 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            aria-label="Switch between Kagura Manga and Kagura Manhwa"
+            className="inline-flex items-center gap-2 py-1.5 -ml-2 px-2 rounded-lg font-display text-xl font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50 hover:bg-zinc-100 dark:hover:bg-zinc-800/70 amoled:hover:bg-zinc-900 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
           >
+            <img
+              src="/assets/aistudio/Code_Generated_Image_2__522eac25.png"
+              alt=""
+              aria-hidden="true"
+              className="w-6 h-6 rounded-md object-cover shrink-0"
+            />
             <span>{activeBrand.name}</span>
             <ChevronDown
               className={`w-4 h-4 text-zinc-500 dark:text-zinc-400 transition-transform duration-150 ${

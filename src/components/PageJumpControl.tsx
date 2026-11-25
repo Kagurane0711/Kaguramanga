@@ -7,14 +7,17 @@ interface PageJumpControlProps {
 }
 
 export default function PageJumpControl({ page, totalPages, onJump }: PageJumpControlProps) {
+  const safeTotalPages = Math.max(1, Math.floor(totalPages) || 1);
+  const displayPage = Math.min(Math.max(1, Math.floor(page) || 1), safeTotalPages);
+
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(String(page));
+  const [draft, setDraft] = useState(String(displayPage));
   const containerRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setDraft(String(page));
-  }, [page]);
+    setDraft(String(displayPage));
+  }, [displayPage, safeTotalPages]);
 
   useEffect(() => {
     if (!open) return;
@@ -46,9 +49,9 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
 
   const commitJump = (rawTarget: number) => {
     if (!Number.isFinite(rawTarget)) return;
-    const clamped = Math.max(1, Math.min(totalPages, Math.floor(rawTarget)));
+    const clamped = Math.max(1, Math.min(safeTotalPages, Math.floor(rawTarget)));
     setOpen(false);
-    if (clamped !== page) {
+    if (clamped !== displayPage) {
       onJump(clamped);
     }
   };
@@ -61,20 +64,20 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
   };
 
   const quickJumps: Array<{ label: string; target: number }> = [];
-  if (page > 1) {
+  if (displayPage > 1) {
     quickJumps.push({ label: '1', target: 1 });
   }
-  if (page > 10) {
-    quickJumps.push({ label: '-10', target: Math.max(1, page - 10) });
+  if (displayPage > 10) {
+    quickJumps.push({ label: '-10', target: Math.max(1, displayPage - 10) });
   }
   for (const step of [10, 50, 100]) {
-    const next = page + step;
-    if (next < totalPages) {
+    const next = displayPage + step;
+    if (next < safeTotalPages) {
       quickJumps.push({ label: `+${step}`, target: next });
     }
   }
-  if (page < totalPages) {
-    quickJumps.push({ label: `${totalPages.toLocaleString()}`, target: totalPages });
+  if (displayPage < safeTotalPages) {
+    quickJumps.push({ label: `${safeTotalPages.toLocaleString()}`, target: safeTotalPages });
   }
 
   return (
@@ -82,7 +85,7 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
       <button
         type="button"
         onClick={() => {
-          setDraft(String(page));
+          setDraft(String(displayPage));
           setOpen((prev) => !prev);
         }}
         aria-expanded={open}
@@ -90,7 +93,7 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
         title="Click to jump to a page"
         className="px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 amoled:hover:bg-zinc-900 rounded-lg font-mono-nums transition-colors cursor-pointer"
       >
-        Page {page.toLocaleString()} of {totalPages.toLocaleString()}
+        Page {displayPage.toLocaleString()} of {safeTotalPages.toLocaleString()}
       </button>
 
       {open && (
@@ -102,7 +105,7 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
           <form onSubmit={handleSubmit} className="space-y-2">
             <div className="flex items-center justify-between text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
               <label htmlFor="page-jump-input">Jump to page</label>
-              <span className="font-mono-nums">1 – {totalPages.toLocaleString()}</span>
+              <span className="font-mono-nums">1 – {safeTotalPages.toLocaleString()}</span>
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -112,10 +115,10 @@ export default function PageJumpControl({ page, totalPages, onJump }: PageJumpCo
                 type="number"
                 inputMode="numeric"
                 min={1}
-                max={totalPages}
+                max={safeTotalPages}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={String(page)}
+                placeholder={String(displayPage)}
                 className="w-full min-w-0 px-2.5 py-1.5 text-xs font-mono-nums bg-zinc-50 dark:bg-[#111114] amoled:bg-[#0e0e11] border border-zinc-300 dark:border-zinc-700 amoled:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-zinc-950 dark:focus:border-zinc-400"
               />
               <button

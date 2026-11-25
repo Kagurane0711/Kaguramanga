@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ShieldCheck } from 'lucide-react';
 import { toast } from 'react-toastify';
 import ImgLogin from '../assets/ImgLogin.jpg';
 import ThemeToggle from '../components/ThemeToggle.tsx';
@@ -7,42 +8,30 @@ import useUsers from '../store/users.ts';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useUsers();
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const { user, signInWithGoogle } = useUsers();
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) {
-      toast.warn('Please enter your email address.');
-      return;
+  useEffect(() => {
+    if (user) {
+      navigate('/library', { replace: true });
     }
-    setSubmitting(true);
-    try {
-      const [given, ...rest] = name.trim().split(/\s+/);
-      await login({
-        email: email.trim(),
-        given_name: given || undefined,
-        family_name: rest.join(' ') || undefined,
-      });
-      toast.success('Signed in successfully.');
-      navigate('/library');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Sign in failed');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  }, [user, navigate]);
 
-  const handleDemo = async () => {
+  const handleGoogleSignIn = async () => {
     setSubmitting(true);
     try {
-      await login({ demo: true });
-      toast.success('Signed in as Demo Reader.');
+      await signInWithGoogle();
+      toast.success('Signed in with Google.');
       navigate('/library');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Sign in failed');
+      const code = (err as { code?: string })?.code;
+      if (code === 'auth/popup-closed-by-user') {
+        toast.info('Sign-in canceled.');
+      } else if (code === 'auth/popup-blocked') {
+        toast.error('Please allow pop-ups in your browser to sign in with Google.');
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Unable to sign in right now.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -64,9 +53,15 @@ export default function Login() {
             <div className="flex items-center justify-between gap-3">
               <Link
                 to="/"
-                className="font-display text-lg font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50 inline-block"
+                className="font-display text-lg font-extrabold tracking-tight text-zinc-950 dark:text-zinc-50 inline-flex items-center gap-2"
               >
-                Polin Manga
+                <img
+                  src="/assets/aistudio/Code_Generated_Image_2__522eac25.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="w-6 h-6 rounded-md object-cover shrink-0"
+                />
+                <span>Kagura Manga</span>
               </Link>
               <ThemeToggle variant="dropdown" compact />
             </div>
@@ -74,54 +69,41 @@ export default function Login() {
               Sign in to sync your library
             </h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Save favorite series and resume chapters from any device.
+              Save favorite manga &amp; manhwa and resume chapters across all your devices with your Google account.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Display Name
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Akira Sato"
-                className="w-full px-3.5 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 border border-zinc-300 dark:bg-[#111114] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:border-zinc-700 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-zinc-950 dark:focus:border-zinc-400 transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full px-3.5 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 border border-zinc-300 dark:bg-[#111114] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:border-zinc-700 amoled:bg-black amoled:border-zinc-800 rounded-lg focus:outline-none focus:border-zinc-950 dark:focus:border-zinc-400 transition-colors"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full py-2.5 px-4 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors disabled:opacity-50"
-            >
-              {submitting ? 'Signing in...' : 'Continue with Email'}
-            </button>
-          </form>
-
-          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 amoled:border-zinc-900">
+          <div className="space-y-4">
             <button
               type="button"
               disabled={submitting}
-              onClick={() => void handleDemo()}
-              className="w-full py-2.5 px-4 text-xs font-semibold text-zinc-800 bg-zinc-100 hover:bg-zinc-200 dark:text-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 amoled:bg-zinc-900 amoled:hover:bg-zinc-800 rounded-lg transition-colors"
+              onClick={() => void handleGoogleSignIn()}
+              className="w-full inline-flex items-center justify-center gap-3 py-3 px-4 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
             >
-              Quick Demo Reader Sign In
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M21.35 11.1h-9.18v2.98h5.27c-.23 1.48-1.72 4.35-5.27 4.35-3.17 0-5.76-2.63-5.76-5.88s2.59-5.88 5.76-5.88c1.81 0 3.02.77 3.71 1.43l2.53-2.44C16.79 4.14 14.69 3.2 12.17 3.2 7.21 3.2 3.2 7.21 3.2 12.17s4.01 8.97 8.97 8.97c5.18 0 8.61-3.64 8.61-8.77 0-.59-.06-1.04-.14-1.27z"
+                />
+              </svg>
+              <span>{submitting ? 'Signing in...' : 'Continue with Google'}</span>
             </button>
+
+            <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-zinc-50 dark:bg-[#111114] amoled:bg-[#0e0e11] border border-zinc-200/80 dark:border-zinc-800 amoled:border-zinc-900">
+              <ShieldCheck className="w-4 h-4 text-rose-600 dark:text-rose-500 shrink-0 mt-0.5" />
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                Protected by Firebase Authentication. Your bookmarks and reading history stay private to your verified account.
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 amoled:border-zinc-900 text-center">
+            <Link
+              to="/"
+              className="text-xs font-medium text-zinc-500 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100 transition-colors"
+            >
+              Continue browsing without signing in &rarr;
+            </Link>
           </div>
         </div>
       </div>

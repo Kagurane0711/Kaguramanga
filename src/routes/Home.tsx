@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Navbar from '../components/Navbar.tsx';
@@ -20,20 +20,43 @@ export default function Home() {
   const [metaData, setMetaData] = useState<MangaListMetaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
 
   const loadManga = useCallback(async () => {
+    const requestId = ++requestSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const { data } = await mangaApi.getList({ page, type, state, category });
+      if (requestId !== requestSeqRef.current) return;
+
+      const nextMeta = data.metaData || null;
+      const nextTotalPages = nextMeta?.totalStories
+        ? Math.max(1, Math.ceil(nextMeta.totalStories / 24))
+        : Math.max(1, nextMeta?.totalPages || 1);
+
       setMangaList(Array.isArray(data.mangaList) ? data.mangaList : []);
-      setMetaData(data.metaData || null);
+      setMetaData(nextMeta ? { ...nextMeta, totalPages: nextTotalPages } : null);
+
+      if (page > nextTotalPages) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('page', String(nextTotalPages));
+            return next;
+          },
+          { replace: true }
+        );
+      }
     } catch (err) {
+      if (requestId !== requestSeqRef.current) return;
       setError(err instanceof Error ? err.message : 'Unable to load manga catalog.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) {
+        setLoading(false);
+      }
     }
-  }, [page, type, state, category]);
+  }, [page, type, state, category, setSearchParams]);
 
   useEffect(() => {
     void loadManga();
@@ -51,7 +74,9 @@ export default function Home() {
   const featured =
     page === 1 && category === 'all' && mangaList.length > 0 ? mangaList[0] : null;
   const gridItems = mangaList;
-  const totalPages = metaData?.totalPages || 1;
+  const totalPages = metaData?.totalStories
+    ? Math.max(1, Math.ceil(metaData.totalStories / 24))
+    : Math.max(1, metaData?.totalPages || 1);
 
   const typeOptions = metaData?.type || [
     { id: 'latest', type: 'Latest' },

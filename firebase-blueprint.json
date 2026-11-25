@@ -1,0 +1,202 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated reader profile metadata (non-PII).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth user UID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Reader display name."
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Optional HTTPS avatar URL."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "photoUrl", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Strictly owner-isolated PII record (email address).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth user UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified account email address."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when private record was last updated."
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "A manga or manhwa series saved to a user's personal library.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "mangaId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Series identifier."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Series display title."
+        },
+        "image": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Series cover image URL."
+        },
+        "latestChapter": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Latest known chapter label."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when bookmarked."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when bookmark was updated."
+        }
+      },
+      "required": ["userId", "mangaId", "title", "image", "latestChapter", "createdAt", "updatedAt"]
+    },
+    "ReadingHistory": {
+      "title": "ReadingHistory",
+      "description": "Most recent chapter and page progress for a series in a user's reading history.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner Firebase Auth UID."
+        },
+        "mangaId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Series identifier."
+        },
+        "mangaTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Series display title."
+        },
+        "mangaImage": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Series cover image URL."
+        },
+        "chapterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "Last read chapter identifier."
+        },
+        "chapterName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Last read chapter label."
+        },
+        "pageIndex": {
+          "type": "integer",
+          "description": "Zero-based page index within the chapter (0..10000)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when first read."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest reading progress."
+        }
+      },
+      "required": [
+        "userId",
+        "mangaId",
+        "mangaTitle",
+        "mangaImage",
+        "chapterId",
+        "chapterName",
+        "pageIndex",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only non-PII profile document for each authenticated reader."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Owner-isolated PII subcollection storing verified email at docId 'info'."
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/Bookmark" },
+      "description": "Owner-only saved manga and manhwa bookmarks."
+    },
+    "/users/{userId}/history/{historyId}": {
+      "schema": { "$ref": "#/entities/ReadingHistory" },
+      "description": "Owner-only chapter reading history and resume progress."
+    }
+  }
+}
