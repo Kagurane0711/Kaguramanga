@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, Menu, X } from 'lucide-react';
 import useUsers from '../store/users.ts';
 import useCatalogBrand, { type CatalogBrand } from '../store/catalogMode.ts';
+import useLoginModal from '../store/loginModal.ts';
 import ThemeToggle from './ThemeToggle.tsx';
 
 const BRAND_OPTIONS: Array<{
@@ -32,6 +33,7 @@ export default function Navbar() {
 
   const { user, loggedIn } = useUsers();
   const { brand, setBrand } = useCatalogBrand();
+  const openLoginModal = useLoginModal((state) => state.openLoginModal);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -179,12 +181,13 @@ export default function Navbar() {
         <div className="hidden md:flex items-center gap-2.5 shrink-0">
           <ThemeToggle variant="dropdown" />
           {!isLoggedIn ? (
-            <Link
-              to="/login"
-              className="px-4 py-2 text-xs font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors whitespace-nowrap shrink-0"
+            <button
+              type="button"
+              onClick={openLoginModal}
+              className="px-4 py-2 text-xs font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               Sign In
-            </Link>
+            </button>
           ) : (
             <Link
               to="/library"
@@ -230,13 +233,26 @@ export default function Navbar() {
 
           <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 amoled:border-zinc-900 space-y-2.5">
             <ThemeToggle variant="segmented" />
-            <Link
-              to={isLoggedIn ? '/library' : '/login'}
-              onClick={() => setMobileMenuOpen(false)}
-              className="block w-full text-center px-4 py-2.5 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors"
-            >
-              {isLoggedIn ? user?.given_name || 'My Library' : 'Sign In'}
-            </Link>
+            {isLoggedIn ? (
+              <Link
+                to="/library"
+                onClick={() => setMobileMenuOpen(false)}
+                className="block w-full text-center px-4 py-2.5 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors"
+              >
+                {user?.given_name || 'My Library'}
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openLoginModal();
+                }}
+                className="block w-full text-center px-4 py-2.5 text-sm font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         </div>
       )}

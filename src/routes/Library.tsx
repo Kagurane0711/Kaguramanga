@@ -5,11 +5,13 @@ import { toast } from 'react-toastify';
 import Navbar from '../components/Navbar.tsx';
 import Footer from '../components/Footer.tsx';
 import DeleteAccountModal from '../components/DeleteAccountModal.tsx';
+import useLoginModal from '../store/loginModal.ts';
 import useUsers from '../store/users.ts';
 
 export default function Library() {
   const navigate = useNavigate();
   const { user, bookmarks, history, toggleBookmark, signOut, deleteAccount } = useUsers();
+  const openLoginModal = useLoginModal((state) => state.openLoginModal);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const handleRemoveBookmark = async (mangaId: string, title: string) => {
@@ -68,12 +70,13 @@ export default function Library() {
                 </button>
               </>
             ) : (
-              <Link
-                to="/login"
-                className="px-4 py-2 text-xs font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg whitespace-nowrap transition-colors"
+              <button
+                type="button"
+                onClick={openLoginModal}
+                className="px-4 py-2 text-xs font-semibold text-white bg-zinc-950 hover:bg-rose-600 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-rose-600 dark:hover:text-white rounded-lg whitespace-nowrap transition-colors cursor-pointer"
               >
                 Sign In to Sync
-              </Link>
+              </button>
             )}
           </div>
         </section>

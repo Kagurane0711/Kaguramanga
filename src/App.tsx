@@ -2,7 +2,9 @@ import { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
+import LoginModal from './components/LoginModal.tsx';
 import Home from './routes/Home.tsx';
+import useLoginModal from './store/loginModal.ts';
 import useTheme from './store/theme.ts';
 import useUsers from './store/users.ts';
 
@@ -26,6 +28,7 @@ function RouteFallback() {
 export default function App() {
   const { theme } = useTheme();
   const initAuth = useUsers((state) => state.initAuth);
+  const { isOpen: loginModalOpen, closeLoginModal } = useLoginModal();
 
   useEffect(() => {
     initAuth();
@@ -54,6 +57,7 @@ export default function App() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
+      <LoginModal open={loginModalOpen} onClose={closeLoginModal} />
     </ErrorBoundary>
   );
 }
